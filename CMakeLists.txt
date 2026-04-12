@@ -13,6 +13,9 @@ find_package(OpenCV REQUIRED)
 # dlib (手动查找，兼容 apt 安装和源码安装)
 find_path(DLIB_INCLUDE_DIR dlib/image_processing/frontal_face_detector.h)
 find_library(DLIB_LIBRARY dlib)
+# dlib 依赖 BLAS/LAPACK
+find_package(BLAS REQUIRED)
+find_package(LAPACK REQUIRED)
 if(NOT DLIB_INCLUDE_DIR OR NOT DLIB_LIBRARY)
     message(FATAL_ERROR
         "dlib 未找到。\n"
@@ -54,6 +57,8 @@ target_include_directories(emotion_music_generator PRIVATE
 target_link_libraries(emotion_music_generator
     ${OpenCV_LIBS}
     ${DLIB_LIBRARY}
+    ${BLAS_LIBRARIES}
+    ${LAPACK_LIBRARIES}
     pthread
 )
 
