@@ -9,7 +9,7 @@ const std::vector<std::string> EmotionRecognizer::EMOTION_LABELS = {
 
 std::string emotionToString(Emotion e) {
     int idx = static_cast<int>(e);
-    if (idx >= 0 && idx < static_cast<int>(EMOTION_LABELS.size())) {
+    if (idx >= 0 && idx < static_cast<int>(EmotionRecognizer::EMOTION_LABELS.size())) {
         return EmotionRecognizer::EMOTION_LABELS[idx];
     }
     return "Unknown";
