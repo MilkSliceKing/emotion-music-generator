@@ -36,12 +36,12 @@ public:
     // 获取各情绪的置信度 (0-1)
     const std::vector<float>& getConfidences() const { return confidences_; }
 
+    static const std::vector<std::string> EMOTION_LABELS;
+
 private:
     cv::dnn::Net net_;
     bool model_loaded_ = false;
     std::vector<float> confidences_;
-
-    static const std::vector<std::string> EMOTION_LABELS;
 };
 
 #endif // EMOTION_RECOGNIZER_H

@@ -29,8 +29,8 @@ bool EmotionRecognizer::loadModel(const std::string& model_path) {
     }
 }
 
-Emotion EmotionRecognizer::recognize(const std::vector<cv::Point>& landmarks) {
-    // 旧接口保留，但 DNN 模式下不应调用
+Emotion EmotionRecognizer::recognize(const std::vector<cv::Point>& /*landmarks*/) {
+    // 旧接口保留，DNN 模式下请使用 recognizeFromImage
     return Emotion::NEUTRAL;
 }
 
