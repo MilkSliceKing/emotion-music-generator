@@ -52,6 +52,10 @@ int main() {
 
     // ---- 初始化各模块 ----
     EmotionRecognizer recognizer;
+    if (!recognizer.loadModel("models/emotion-ferplus.onnx")) {
+        std::cerr << "[错误] 情绪识别模型加载失败，程序退出" << std::endl;
+        return -1;
+    }
     EmotionMapper mapper;
     MusicGenerator generator;
     AudioPlayer player;
@@ -104,20 +108,39 @@ int main() {
                 detector.drawFace(frame, *biggest);
                 detector.drawLandmarks(frame, landmarks);
 
-                // ---- 情绪识别 ----
-                Emotion detected = recognizer.recognize(landmarks);
+                // ---- 情绪识别 (DNN 推理) ----
+                Emotion detected = recognizer.recognizeFromImage(frame, *biggest);
                 emotion_buffer.push_back(detected);
                 if (static_cast<int>(emotion_buffer.size()) > SMOOTH_WINDOW) {
                     emotion_buffer.pop_front();
                 }
                 current_emotion = smoothEmotion(emotion_buffer);
 
-                // 显示情绪标签
+                // 显示情绪标签和置信度
                 std::string emotion_text = "Emotion: " + emotionToString(current_emotion);
                 cv::putText(frame, emotion_text,
                             cv::Point(10, 60),
                             cv::FONT_HERSHEY_SIMPLEX, 0.7,
                             cv::Scalar(255, 200, 0), 2);
+
+                // 显示各情绪置信度
+                auto& conf = recognizer.getConfidences();
+                if (!conf.empty()) {
+                    // 只显示置信度最高的3个
+                    std::vector<std::pair<float, int>> sorted;
+                    for (int i = 0; i < static_cast<int>(conf.size()); ++i) {
+                        sorted.push_back({conf[i], i});
+                    }
+                    std::sort(sorted.rbegin(), sorted.rend());
+                    for (int i = 0; i < std::min(3, static_cast<int>(sorted.size())); ++i) {
+                        std::string txt = emotionToString(static_cast<Emotion>(sorted[i].second)) +
+                                          ": " + std::to_string(sorted[i].first * 100).substr(0, 5) + "%";
+                        cv::putText(frame, txt,
+                                    cv::Point(10, 120 + i * 20),
+                                    cv::FONT_HERSHEY_SIMPLEX, 0.45,
+                                    cv::Scalar(180, 180, 180), 1);
+                    }
+                }
 
                 // 显示音乐参数
                 auto params = mapper.mapToMusic(current_emotion);
