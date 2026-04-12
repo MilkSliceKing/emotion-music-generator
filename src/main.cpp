@@ -25,23 +25,56 @@ static Emotion smoothEmotion(const std::deque<Emotion>& buffer) {
     return static_cast<Emotion>(max_idx);
 }
 
-int main() {
+int main(int argc, char* argv[]) {
     std::cout << "========================================" << std::endl;
     std::cout << "  情绪音乐生成器 (Emotion Music Generator)" << std::endl;
     std::cout << "========================================" << std::endl;
+
+    // 用法提示
+    if (argc < 2) {
+        std::cout << "用法:" << std::endl;
+        std::cout << "  " << argv[0] << " camera        # 使用摄像头" << std::endl;
+        std::cout << "  " << argv[0] << " image 图片路径  # 分析单张图片" << std::endl;
+        std::cout << "  " << argv[0] << " video 视频路径  # 分析视频文件" << std::endl;
+        return 0;
+    }
+
+    std::string mode = argv[1];
     std::cout << "初始化中..." << std::endl;
 
-    // ---- 初始化摄像头 ----
-    cv::VideoCapture cap(0);
-    if (!cap.isOpened()) {
-        std::cerr << "[错误] 无法打开摄像头" << std::endl;
-        std::cerr << "  1. 检查摄像头是否连接" << std::endl;
-        std::cerr << "  2. 检查虚拟机 USB 摄像头映射" << std::endl;
+    // ---- 初始化输入源 ----
+    cv::VideoCapture cap;
+    cv::Mat static_image;
+    bool is_image_mode = false;
+
+    if (mode == "camera") {
+        cap.open(0);
+        if (!cap.isOpened()) {
+            std::cerr << "[错误] 无法打开摄像头" << std::endl;
+            return -1;
+        }
+        cap.set(cv::CAP_PROP_FRAME_WIDTH, 640);
+        cap.set(cv::CAP_PROP_FRAME_HEIGHT, 480);
+        std::cout << "[摄像头] 已打开 (640x480)" << std::endl;
+    } else if (mode == "image" && argc >= 3) {
+        static_image = cv::imread(argv[2]);
+        if (static_image.empty()) {
+            std::cerr << "[错误] 无法读取图片: " << argv[2] << std::endl;
+            return -1;
+        }
+        is_image_mode = true;
+        std::cout << "[图片] 已加载: " << argv[2] << " (" << static_image.cols << "x" << static_image.rows << ")" << std::endl;
+    } else if (mode == "video" && argc >= 3) {
+        cap.open(argv[2]);
+        if (!cap.isOpened()) {
+            std::cerr << "[错误] 无法打开视频: " << argv[2] << std::endl;
+            return -1;
+        }
+        std::cout << "[视频] 已打开: " << argv[2] << std::endl;
+    } else {
+        std::cerr << "[错误] 未知模式: " << mode << std::endl;
         return -1;
     }
-    cap.set(cv::CAP_PROP_FRAME_WIDTH, 640);
-    cap.set(cv::CAP_PROP_FRAME_HEIGHT, 480);
-    std::cout << "[摄像头] 已打开 (640x480)" << std::endl;
 
     // ---- 初始化面部检测器 ----
     FaceDetector detector;
@@ -60,7 +93,10 @@ int main() {
     MusicGenerator generator;
     AudioPlayer player;
 
-    std::cout << "[初始化] 完成! 按 ESC 退出, 按 SPACE 手动触发音乐" << std::endl;
+    std::cout << "[初始化] 完成!" << std::endl;
+    if (!is_image_mode) {
+        std::cout << "按 ESC 退出, 按 SPACE 手动触发音乐, M 切换自动播放" << std::endl;
+    }
 
     // ---- 主循环 ----
     cv::Mat frame;
@@ -74,6 +110,12 @@ int main() {
     bool music_enabled = true;
 
     while (true) {
+        // 读取帧
+        if (is_image_mode) {
+            frame = static_image.clone();
+        } else {
+            cap >> frame;
+        }
         cap >> frame;
         if (frame.empty()) {
             std::cerr << "[警告] 空帧，摄像头可能断开" << std::endl;
@@ -188,7 +230,8 @@ int main() {
         cv::imshow("Emotion Music Generator", frame);
 
         // ---- 键盘控制 ----
-        int key = cv::waitKey(1);
+        int key = cv::waitKey(is_image_mode ? 0 : 1);
+        if (is_image_mode && key >= 0) break;  // 图片模式按任意键退出
         if (key == 27) break;  // ESC 退出
 
         if (key == ' ') {      // 空格 手动播放
