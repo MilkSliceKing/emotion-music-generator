@@ -1,0 +1,41 @@
+# 构建产物
+build/
+cmake-build-*/
+
+# 编译产物
+*.o
+*.out
+*.a
+*.so
+*.dylib
+
+# 可执行文件
+emotion_music_generator
+
+# IDE 文件
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# 系统文件
+.DS_Store
+Thumbs.db
+
+# 模型文件 (太大，不纳入 git)
+models/*.dat
+models/*.pkl
+models/*.h5
+models/*.onnx
+
+# 依赖目录
+dlib/
+magenta/
+
+# Python 缓存
+__pycache__/
+*.pyc
+
+# 日志
+*.log

@@ -1,0 +1,34 @@
+# 情绪音乐生成器 - 配置文件
+
+camera:
+  device_id: 0
+  width: 640
+  height: 480
+  fps_target: 30
+
+detection:
+  model_path: "models/shape_predictor_68_face_landmarks.dat"
+  # 检测间隔 (毫秒)，0 表示每帧检测
+  interval_ms: 0
+  # 检测缩放倍数 (越大越快但越粗糙)
+  pyramid_upscales: 1
+
+emotion:
+  # 情绪平滑窗口大小
+  smoothing_window: 5
+  # 各特征的阈值
+  mouth_aspect_ratio_threshold: 0.5
+  eye_aspect_ratio_threshold: 0.3
+  eyebrow_height_threshold: 8.0
+
+music:
+  default_num_notes: 8
+  sample_rate: 44100
+  master_volume: 0.3
+
+logging:
+  # 是否在画面上显示调试信息
+  show_fps: true
+  show_emotion: true
+  show_landmarks: true
+  show_face_box: true
