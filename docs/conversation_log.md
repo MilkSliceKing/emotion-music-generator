@@ -18,149 +18,205 @@
 
 技术需求：Git + SourceTree + Node.js + Commitizen + cz-conventional-changelog
 
-优点：
-- Commit Message 规范化（feat/fix/docs 等前缀）
-- SourceTree 可视化操作降低 Git 门槛
-- 配合 conventional-changelog 可自动生成 CHANGELOG
-- Commitizen 交互式引导降低记忆负担
-
-缺点：
-- 工具链割裂（SourceTree 管 GUI，Commitizen 要回终端）
-- 引入 Node.js 依赖（非前端项目显得过重）
-- SourceTree 大仓库性能差、偶尔崩溃
-- Commitizen 对简单修改流程过重
-- 团队推广成本高
-
-轻量替代方案：VS Code Git 插件 + Conventional Commits 插件 / Husky + commitlint
+优点：Commit Message 规范化、SourceTree 可视化、自动 CHANGELOG、交互式引导
+缺点：工具链割裂、引入 Node.js 依赖、SourceTree 性能差、流程过重
 
 ---
 
 ### Q2: 在 Windows 还是 VM 里开发？
 
-**用户**：请你结合实验目录下的txt文档和devlog内容，开始这一步的开发。但是这个项目最后验收是要能在ubuntu也就是linux虚拟机上运行的，你觉得我是要在windows系统上做完然后镜像到linux里头还是在虚拟机里头做？给我方案。
+**用户**：这个项目最后验收是要能在ubuntu也就是linux虚拟机上运行的，你觉得我是要在windows系统上做完然后镜像到linux里头还是在虚拟机里头做？
 
-**AI 建议**：直接在 Linux 虚拟机里开发，推荐使用 VS Code Remote-SSH。
-
-分析要点：
-- 编译器不同（MSVC vs GCC），C++ 行为有差异
-- OpenCV/dlib/PortAudio 是系统级库，跨平台路径完全不同
-- dlib 在 Windows 上编译困难，Ubuntu 上 apt install 即可
-- 摄像头接口不同（V4L2 vs DirectShow）
-- 验收在 VM 里跑，最后移植可能翻车
-
-最终方案：Windows 上用 AI 生成代码 → GitHub 推送 → VM 里 clone 编译运行
+**AI 建议**：直接在 Linux 虚拟机里开发。最终方案：Windows 上用 AI 生成代码 → GitHub 推送 → VM 里 clone 编译运行。
 
 ---
 
-### Q3: 准备项目基础文件
+### Q3-Q10: 部署过程中的各种问题
 
-**用户**：可以啊，你帮我准备好基础文件，把文件放在 G:\大二\下\linux\实验目录下。VM能正常开机并且连接VSCode顺畅。
-
-**AI 操作**：生成完整项目骨架（22个文件），包括：
-- 构建配置（CMakeLists.txt 含 BLAS/LAPACK/PortAudio 条件编译）
-- 5个模块的源码（detector/mapper/generator/audio）
-- 主程序 main.cpp
-- 文档框架（designed.md, perf.md, ai_usage.md）
-- 配置文件（config.yaml, .gitignore, .gitattributes, build.sh）
-
----
-
-### Q4: VS Code SSH 打开本地文件夹等于在 Windows 运行？
-
-**用户**：可是这个程序最终要在ubuntu运行，我在ssh打开了这个文件夹不是等于我在windows本地运行了吗？
-
-**AI 纠正**：VS Code Remote-SSH 是编辑 VM 上的文件，不是编辑 Windows 文件。代码必须在 VM 的硬盘上。正确流程：
-
-```
-Windows: git push → GitHub
-VM: git clone → 编译 → 运行
-VS Code Remote-SSH: 连接 VM 编辑 VM 上的文件
-```
+| 编号 | 问题 | 解决方案 |
+|------|------|---------|
+| Q3 | 准备项目基础文件 | AI 生成 22 个文件 |
+| Q4 | VS Code SSH 打开本地文件夹≠在VM上运行 | 代码必须在 VM 硬盘上，通过 GitHub 中转 |
+| Q5 | Git push 连接超时 | 配置代理 127.0.0.1:7897 |
+| Q6 | Git push rejected | pull --rebase + push --force |
+| Q7 | VM 里 git clone 失败 | VM 里配代理走 Windows 网络 |
+| Q8 | 编译链接错误 cblas_dgemm | CMakeLists.txt 添加 BLAS/LAPACK |
+| Q9 | 摄像头无法识别 | VMware USB 映射 |
+| Q10 | 模型文件找不到 | 从项目根目录运行 |
 
 ---
 
-### Q5: Git push 连接超时
+## 会话日期：2026-04-13
 
-**用户**：
-```
-fatal: unable to access 'https://github.com/...': Failed to connect to github.com port 443
-```
+### 主题：情绪识别模型攻关 — 从反复失败到最终成功
 
-**AI**：配置 Git 代理：
+---
+
+### Q11: 表情识别不准，不想用自己的脸训练
+
+**用户**：它的表情情绪识别不是很准，但是我不知道他是基于什么运作的，是不是需要模型去训练他吗？
+
+**AI 解释**：当前是规则判断（基于4个面部特征阈值），不需要训练。但阈值是通用值，对不同人效果差。建议换预训练的深度学习模型。
+
+---
+
+### Q12: 换 FER+ ONNX 模型
+
+**用户**：可以用网上的模型吗
+
+**AI 操作**：换用 FER+ ONNX 模型（从 ONNX Model Zoo 下载，34MB），用 OpenCV DNN 加载。
+
+**结果**：加载成功，但所有表情都被识别为 Neutral。
+
+---
+
+### Q13: 摄像头老断，能不能不用摄像头
+
+**用户**：我不想要虚拟机开摄像头，有啥别的方法吗
+
+**AI**：添加图片/视频文件输入支持：
 ```bash
-git config --global http.proxy http://127.0.0.1:7897
-git config --global https.proxy http://127.0.0.1:7897
+./emotion_music_generator image test_images/face.jpg
+./emotion_music_generator video video.mp4
 ```
-代理端口查自用户确认：混合代理端口 7897
 
 ---
 
-### Q6: Git push rejected (non-fast-forward)
+### Q14: 支持多个人脸？半张脸？
 
-**用户**：
-```
-! [rejected] main -> main (non-fast-forward)
-```
+**用户**：如果有多个人呢？如果只有半张脸咋办？
 
-**AI**：先 `git pull --rebase`，产生冲突后 `git checkout --ours` 保留本地版本，最终 `git push --force`。
+**AI**：
+- 多人：只识别最大人脸
+- 半张脸：dlib 检测不到，直接显示"No face detected"
 
 ---
 
-### Q7: VM 里 git clone 失败
+### Q15: 人脸检测和表情识别都不满意
 
-**用户**：
+**用户**：你的人脸检测用手捧着脸就识别不出来了，而且明显愤怒的（如张开嘴咆哮）的照片都被识别成了 Neutral，请你给我修改方案
+
+**AI 方案**：
+1. 人脸检测：dlib HOG → OpenCV DNN SSD（更准）
+2. 情绪识别：FER+ ONNX → Caffe FER 模型（更成熟）
+
+---
+
+### Q16: SSD 模型下载一波三折
+
+**用户尝试下载 deploy.prototxt**：
 ```
-GnuTLS recv error (-54): Error in the pull function
+错误 404：Not Found
 ```
 
-**AI**：VM 里也要配代理，走 Windows 的网络：
+**AI 手写 prototxt 推送** → 但与 caffemodel 不匹配：
+```
+error: (-215:Assertion failed) !blobs.empty() || inputs.size() > 1
+```
+
+**结论**：手写的网络结构和实际模型不匹配，SSD 方案暂时搁置。
+
+---
+
+### Q17: FER+ 预处理排查
+
+**AI 写了 Python 测试脚本** `test_emotion.py`，对同一张脸测试 4 种归一化方式：
+
+```
+--- A: [0,255] 不归一化 ---
+  Neutral: xx.xx%
+  ...
+--- B: [0,1] 除以255 ---
+  Neutral: xx.xx%
+  ...
+--- C: [-1,1] 减128除128 ---
+  Neutral: xx.xx%
+  ...
+--- D: 标准化 mean=0.5 std=0.5 ---
+  Neutral: xx.xx%
+  ...
+```
+
+**结果：4种方式全部输出 Neutral！** 证明不是预处理的问题，是 FER+ ONNX 模型与 OpenCV DNN 不兼容。
+
+---
+
+### Q18: Caffe 情绪模型也下载不到
+
+```
+wget ... fer2013.caffemodel
+错误 404：Not Found
+```
+
+多个 GitHub 源尝试均失败。
+
+---
+
+### Q19: 转 DeepFace — 终于看到希望
+
+**AI**：用 DeepFace（Python 库）做对照实验，确认模型到底能不能用。
+
+**安装过程**：
 ```bash
-export https_proxy=http://Windows局域网IP:7897
+pip install deepface          # 安装
+pip install tf-keras           # 修复依赖报错
 ```
-前提：Windows 代理软件开启"允许局域网连接"
+
+**测试结果**：
+```python
+DeepFace.analyze(img_path='test_images/test9.jpg', actions=['emotion'])
+# 输出:
+# 'angry': 86.01, 'fear': 13.97, 'disgust': 0.003, 'happy': 0.00, 'sad': 0.02
+# dominant_emotion: 'angry'
+```
+
+**DeepFace 准确识别为 angry（86%置信度）！**
+
+放进去的照片确实是愤怒的表情，DeepFace 的结果完全正确。这证明：
+1. 照片没有问题
+2. 模型可以识别情绪
+3. 问题出在 FER+ ONNX 模型与 OpenCV DNN 的兼容性上
 
 ---
 
-### Q8: 编译链接错误 cblas_dgemm
+### Q20: 最终方案 — C++ + DeepFace 桥接
 
-**用户**：
+**AI 设计了桥接方案**：
 ```
-/usr/bin/ld: undefined reference to symbol 'cblas_dgemm'
-error adding symbols: DSO missing from command line
+C++ 人脸检测(dlib) → 裁剪人脸保存临时图片 → 调用 Python DeepFace → 解析结果
 ```
 
-**AI**：dlib 依赖 BLAS/LAPACK，修改 CMakeLists.txt：
-```cmake
-find_package(BLAS REQUIRED)
-find_package(LAPACK REQUIRED)
-target_link_libraries(... ${BLAS_LIBRARIES} ${LAPACK_LIBRARIES})
+新增文件：
+- `predict_emotion.py`：桥接脚本，接收图片路径，输出情绪和置信度
+- `emotion_recognizer.cpp`：裁剪人脸 → popen() 调用 Python → 解析逗号分隔输出
+
+**最终测试结果**：
+```bash
+./build/emotion_music_generator image test_images/test9.jpg
+# 成功识别为 Angry，置信度正确显示
 ```
+
+**用户反馈**：可以了，效果挺好的。
 
 ---
 
-### Q9: 摄像头无法识别
+### Q21: 你为什么能直接改代码让 VM 程序更新？
 
-**用户**：
-```
-Cannot identify device '/dev/video0'
-[错误] 无法打开摄像头
-```
+**用户**：你为啥可以直接改代码然后我的虚拟机的程序可以不断完善？你连着我的虚拟机吗？
 
-**AI**：VMware 未映射 USB 摄像头。操作：VMware 菜单 → VM → Removable Devices → 选择摄像头 → Connect
+**AI**：没有连 VM。流程是：
+```
+我改代码 → 保存 Windows 文件 → git push GitHub → 用户 VM 里 git pull → 编译运行
+```
+中间通过 GitHub 中转，用户的 VM 需要手动 `git pull` 才会更新。
 
 ---
 
-### Q10: 模型文件找不到
+### Q22: 外接硬盘上的 VM 还原快照卡住
 
-**用户**：程序运行后报 `Unable to open models/shape_predictor_68_face_landmarks.dat`
+**用户**：还原虚拟机状态还原了快一个小时了
 
-**AI**：从 `build/` 目录运行时相对路径解析错误。解决：从项目根目录运行 `./build/emotion_music_generator`
-
----
-
-### 运行成功
-
-最终程序在 Ubuntu VM 上成功运行，摄像头正常工作，面部检测和关键点提取功能正常。
+**AI**：强制关闭 VMware，重新开机（不恢复快照），之前的数据都在磁盘上不会丢。
 
 ---
 
@@ -168,8 +224,25 @@ Cannot identify device '/dev/video0'
 
 | 项目 | 详情 |
 |------|------|
-| 开发时间 | 2026-04-12（约3小时） |
+| 总开发时间 | 2026-04-12 ~ 04-13（约 6 小时） |
 | AI 工具 | Claude Code (GLM 5.1) |
-| 遇到问题数 | 6 个 |
+| 遇到问题总数 | 22 个 |
 | 全部解决 | 是 |
-| 当前状态 | 面部检测 + 关键点提取可用，完整流水线待测试 |
+| 当前状态 | 人脸检测 + 情绪识别完整流水线跑通 |
+| 最终方案 | dlib HOG 人脸检测 + DeepFace Python 桥接情绪识别 |
+
+### 情绪识别方案演进史
+
+```
+规则判断(68关键点阈值) → 不准
+    ↓
+FER+ ONNX 模型 → 全输出 Neutral
+    ↓
+排查 4 种归一化 → 都不行
+    ↓
+换 Caffe FER 模型 → 下载不到
+    ↓
+DeepFace Python → angry 86% ✓ 成功！
+    ↓
+C++ + Python 桥接 → 最终方案
+```
