@@ -2,10 +2,12 @@
 #include "face_detector.h"
 #include <algorithm>
 #include <iostream>
+#include <fstream>
+#include <cstdlib>
+#include <sstream>
 
-// FER+ 模型输出顺序: Neutral, Happy, Surprise, Sad, Angry, Disgust, Fear, Contempt
 const std::vector<std::string> EmotionRecognizer::EMOTION_LABELS = {
-    "Neutral", "Happy", "Surprise", "Sad", "Angry", "Disgust", "Fear", "Contempt"
+    "Angry", "Disgust", "Fear", "Happy", "Sad", "Surprise", "Neutral"
 };
 
 std::string emotionToString(Emotion e) {
@@ -16,70 +18,91 @@ std::string emotionToString(Emotion e) {
     return "Unknown";
 }
 
-bool EmotionRecognizer::loadModel(const std::string& model_path) {
-    try {
-        net_ = cv::dnn::readNetFromONNX(model_path);
-        net_.setPreferableBackend(cv::dnn::DNN_BACKEND_OPENCV);
-        net_.setPreferableTarget(cv::dnn::DNN_TARGET_CPU);
-        model_loaded_ = true;
-        std::cout << "[EmotionRecognizer] ONNX 模型加载成功: " << model_path << std::endl;
-        return true;
-    } catch (const cv::Exception& e) {
-        std::cerr << "[EmotionRecognizer] 模型加载失败: " << e.what() << std::endl;
-        return false;
-    }
+bool EmotionRecognizer::loadModel(const std::string& script_path) {
+    script_path_ = script_path;
+    initialized_ = true;
+    std::cout << "[EmotionRecognizer] 使用 DeepFace 桥接脚本: " << script_path << std::endl;
+    return true;
+}
+
+Emotion EmotionRecognizer::parseEmotion(const std::string& label) {
+    std::string lower = label;
+    std::transform(lower.begin(), lower.end(), lower.begin(), ::tolower);
+
+    if (lower == "angry")     return Emotion::ANGRY;
+    if (lower == "disgust")   return Emotion::DISGUST;
+    if (lower == "fear")      return Emotion::FEAR;
+    if (lower == "happy")     return Emotion::HAPPY;
+    if (lower == "sad")       return Emotion::SAD;
+    if (lower == "surprise")  return Emotion::SURPRISED;
+    return Emotion::NEUTRAL;
 }
 
 Emotion EmotionRecognizer::recognizeFromImage(const cv::Mat& frame, const FaceRect& face) {
-    if (!model_loaded_) {
-        return Emotion::NEUTRAL;
-    }
+    if (!initialized_) return Emotion::NEUTRAL;
 
-    // 1. 裁剪人脸区域，加 30% 边距
-    float margin = 0.3f;
-    int margin_x = static_cast<int>(face.width * margin);
-    int margin_y = static_cast<int>(face.height * margin);
+    // 1. 裁剪人脸，加 20% 边距
+    float margin = 0.2f;
+    int mx = static_cast<int>(face.width * margin);
+    int my = static_cast<int>(face.height * margin);
 
-    int x = std::max(0, face.x - margin_x);
-    int y = std::max(0, face.y - margin_y);
-    int w = std::min(frame.cols - x, face.width + 2 * margin_x);
-    int h = std::min(frame.rows - y, face.height + 2 * margin_y);
+    int x = std::max(0, face.x - mx);
+    int y = std::max(0, face.y - my);
+    int w = std::min(frame.cols - x, face.width + 2 * mx);
+    int h = std::min(frame.rows - y, face.height + 2 * my);
 
     cv::Rect roi(x, y, w, h);
     roi &= cv::Rect(0, 0, frame.cols, frame.rows);
 
     cv::Mat face_crop = frame(roi);
 
-    // 2. 转灰度 + 缩放到 64x64（FER+ 输入尺寸）
-    cv::Mat gray, resized;
-    cv::cvtColor(face_crop, gray, cv::COLOR_BGR2GRAY);
-    cv::resize(gray, resized, cv::Size(64, 64));
+    // 2. 保存为临时文件
+    std::string temp_path = "/tmp/emo_face_" + std::to_string(temp_counter_++) + ".jpg";
+    cv::imwrite(temp_path, face_crop);
 
-    // 3. 构造 blob
-    //    FER+ 模型期望: 1x1x64x64, 像素值 [0, 255] 范围
-    //    blobFromImage 的 scalefactor=1.0 保留原始像素值
-    cv::Mat blob = cv::dnn::blobFromImage(resized, 1.0, cv::Size(64, 64),
-                                           cv::Scalar(0), true, false);
-
-    // 4. 前向推理
-    net_.setInput(blob);
-    cv::Mat output = net_.forward();
-
-    // 5. 解析输出 — 模型直接输出概率分布
-    confidences_.resize(output.cols);
-    float max_val = -1;
-    int max_idx = 0;
-
-    for (int i = 0; i < output.cols; ++i) {
-        confidences_[i] = output.at<float>(0, i);
-        if (confidences_[i] > max_val) {
-            max_val = confidences_[i];
-            max_idx = i;
-        }
+    // 3. 调用 Python 脚本
+    std::string cmd = "python3 " + script_path_ + " " + temp_path + " 2>/dev/null";
+    FILE* pipe = popen(cmd.c_str(), "r");
+    if (!pipe) {
+        std::cerr << "[EmotionRecognizer] 无法执行 Python 脚本" << std::endl;
+        std::remove(temp_path.c_str());
+        return Emotion::NEUTRAL;
     }
 
-    // 只映射前7种情绪（忽略 Contempt）
-    if (max_idx > 6) max_idx = 0;
+    char buffer[512];
+    std::string result;
+    while (fgets(buffer, sizeof(buffer), pipe)) {
+        result += buffer;
+    }
+    pclose(pipe);
 
-    return static_cast<Emotion>(max_idx);
+    // 删除临时文件
+    std::remove(temp_path.c_str());
+
+    // 4. 解析输出
+    // 格式: dominant_emotion,angry,disgust,fear,happy,sad,surprise,neutral
+    if (result.empty() || result.substr(0, 5) == "ERROR") {
+        return Emotion::NEUTRAL;
+    }
+
+    // 去掉换行
+    if (!result.empty() && result.back() == '\n') result.pop_back();
+
+    std::stringstream ss(result);
+    std::string token;
+    std::vector<std::string> parts;
+    while (std::getline(ss, token, ',')) {
+        parts.push_back(token);
+    }
+
+    if (parts.size() < 8) return Emotion::NEUTRAL;
+
+    // parts[0] = dominant emotion label
+    // parts[1-7] = angry,disgust,fear,happy,sad,surprise,neutral 置信度
+    confidences_.resize(7);
+    for (int i = 0; i < 7; ++i) {
+        confidences_[i] = std::stof(parts[i + 1]) / 100.0f;
+    }
+
+    return parseEmotion(parts[0]);
 }

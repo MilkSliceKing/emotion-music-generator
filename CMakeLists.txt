@@ -7,22 +7,20 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 # ---------- 依赖查找 ----------
 
-# OpenCV (必须)
+# OpenCV
 find_package(OpenCV REQUIRED)
 
-# dlib (可选，仅用于 68 关键点可视化)
+# dlib
 find_path(DLIB_INCLUDE_DIR dlib/image_processing/frontal_face_detector.h)
 find_library(DLIB_LIBRARY dlib)
-if(DLIB_INCLUDE_DIR AND DLIB_LIBRARY)
-    find_package(BLAS REQUIRED)
-    find_package(LAPACK REQUIRED)
-    add_compile_definitions(HAS_DLIB)
-    message(STATUS "dlib: 已找到 (${DLIB_LIBRARY})，启用 landmark 功能")
-else()
-    message(WARNING "dlib 未找到，68关键点功能将不可用（不影响人脸检测和情绪识别）")
+find_package(BLAS REQUIRED)
+find_package(LAPACK REQUIRED)
+if(NOT DLIB_INCLUDE_DIR OR NOT DLIB_LIBRARY)
+    message(FATAL_ERROR "dlib 未找到。安装: sudo apt install libdlib-dev")
 endif()
+message(STATUS "dlib: ${DLIB_LIBRARY}")
 
-# PortAudio (可选，音频播放)
+# PortAudio (可选)
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(PORTAUDIO portaudio-2.0)
 if(NOT PORTAUDIO_FOUND)
@@ -45,24 +43,17 @@ add_executable(emotion_music_generator ${SOURCES})
 target_include_directories(emotion_music_generator PRIVATE
     ${CMAKE_SOURCE_DIR}/src
     ${OpenCV_INCLUDE_DIRS}
+    ${DLIB_INCLUDE_DIR}
 )
 
 target_link_libraries(emotion_music_generator
     ${OpenCV_LIBS}
+    ${DLIB_LIBRARY}
+    ${BLAS_LIBRARIES}
+    ${LAPACK_LIBRARIES}
     pthread
 )
 
-# dlib 链接（如果找到）
-if(DLIB_INCLUDE_DIR AND DLIB_LIBRARY)
-    target_include_directories(emotion_music_generator PRIVATE ${DLIB_INCLUDE_DIR})
-    target_link_libraries(emotion_music_generator
-        ${DLIB_LIBRARY}
-        ${BLAS_LIBRARIES}
-        ${LAPACK_LIBRARIES}
-    )
-endif()
-
-# PortAudio 链接（如果找到）
 if(PORTAUDIO_FOUND)
     target_include_directories(emotion_music_generator PRIVATE ${PORTAUDIO_INCLUDE_DIRS})
     target_link_libraries(emotion_music_generator ${PORTAUDIO_LIBRARIES})

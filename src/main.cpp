@@ -75,19 +75,16 @@ int main(int argc, char* argv[]) {
         return -1;
     }
 
-    // ---- 初始化人脸检测器 (OpenCV DNN SSD) ----
+    // ---- 初始化人脸检测器 (dlib HOG) ----
     FaceDetector detector;
-    detector.setConfidenceThreshold(0.3f);
-    if (!detector.loadDetector("models/face_detector")) {
+    if (!detector.loadModel("models/shape_predictor_68_face_landmarks.dat")) {
         std::cerr << "[错误] 人脸检测模型加载失败" << std::endl;
         return -1;
     }
-    // landmark 模型可选（用于可视化关键点）
-    detector.loadLandmarkModel("models/shape_predictor_68_face_landmarks.dat");
 
-    // ---- 初始化情绪识别 (FER+ ONNX) ----
+    // ---- 初始化情绪识别 (DeepFace Python 桥接) ----
     EmotionRecognizer recognizer;
-    if (!recognizer.loadModel("models/emotion-ferplus.onnx")) {
+    if (!recognizer.loadModel("predict_emotion.py")) {
         std::cerr << "[错误] 情绪识别模型加载失败" << std::endl;
         return -1;
     }
