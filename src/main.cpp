@@ -12,7 +12,7 @@
 // 情绪平滑缓冲区大小
 static constexpr int SMOOTH_WINDOW = 5;
 
-// 最简单的情绪平滑: 取众数
+// 取众数平滑
 static Emotion smoothEmotion(const std::deque<Emotion>& buffer) {
     int counts[7] = {0};
     for (const auto& e : buffer) {
@@ -30,7 +30,6 @@ int main(int argc, char* argv[]) {
     std::cout << "  情绪音乐生成器 (Emotion Music Generator)" << std::endl;
     std::cout << "========================================" << std::endl;
 
-    // 用法提示
     if (argc < 2) {
         std::cout << "用法:" << std::endl;
         std::cout << "  " << argv[0] << " camera        # 使用摄像头" << std::endl;
@@ -76,19 +75,23 @@ int main(int argc, char* argv[]) {
         return -1;
     }
 
-    // ---- 初始化面部检测器 ----
+    // ---- 初始化人脸检测器 (OpenCV DNN SSD) ----
     FaceDetector detector;
-    if (!detector.loadModel("models/shape_predictor_68_face_landmarks.dat")) {
-        std::cerr << "[错误] Landmark 模型加载失败，程序退出" << std::endl;
+    if (!detector.loadDetector("models/face_detector")) {
+        std::cerr << "[错误] 人脸检测模型加载失败" << std::endl;
+        return -1;
+    }
+    // landmark 模型可选（用于可视化关键点）
+    detector.loadLandmarkModel("models/shape_predictor_68_face_landmarks.dat");
+
+    // ---- 初始化情绪识别 (Caffe FER) ----
+    EmotionRecognizer recognizer;
+    if (!recognizer.loadModel("models/emotion_detector")) {
+        std::cerr << "[错误] 情绪识别模型加载失败" << std::endl;
         return -1;
     }
 
-    // ---- 初始化各模块 ----
-    EmotionRecognizer recognizer;
-    if (!recognizer.loadModel("models/emotion-ferplus.onnx")) {
-        std::cerr << "[错误] 情绪识别模型加载失败，程序退出" << std::endl;
-        return -1;
-    }
+    // ---- 初始化其他模块 ----
     EmotionMapper mapper;
     MusicGenerator generator;
     AudioPlayer player;
@@ -110,14 +113,13 @@ int main(int argc, char* argv[]) {
     bool music_enabled = true;
 
     while (true) {
-        // 读取帧
         if (is_image_mode) {
             frame = static_image.clone();
         } else {
             cap >> frame;
         }
         if (frame.empty()) {
-            std::cerr << "[警告] 空帧，摄像头可能断开" << std::endl;
+            std::cerr << "[警告] 空帧，输入结束" << std::endl;
             break;
         }
 
@@ -135,118 +137,109 @@ int main(int argc, char* argv[]) {
         auto faces = detector.detectFaces(frame);
 
         if (!faces.empty()) {
-            // 取最大的人脸 (面积最大的)
+            // 取最大的人脸
             auto biggest = std::max_element(faces.begin(), faces.end(),
                 [](const FaceRect& a, const FaceRect& b) {
                     return a.width * a.height < b.width * b.height;
                 });
 
-            // 提取关键点
+            // 绘制面部框
+            detector.drawFace(frame, *biggest);
+
+            // 提取并绘制关键点（如果 landmark 模型可用）
             auto landmarks = detector.getLandmarks(frame, *biggest);
-
-            if (landmarks.size() == 68) {
-                // 绘制面部框和关键点
-                detector.drawFace(frame, *biggest);
+            if (!landmarks.empty()) {
                 detector.drawLandmarks(frame, landmarks);
+            }
 
-                // ---- 情绪识别 (DNN 推理) ----
-                Emotion detected = recognizer.recognizeFromImage(frame, *biggest);
-                emotion_buffer.push_back(detected);
-                if (static_cast<int>(emotion_buffer.size()) > SMOOTH_WINDOW) {
-                    emotion_buffer.pop_front();
+            // ---- 情绪识别 ----
+            Emotion detected = recognizer.recognizeFromImage(frame, *biggest);
+            emotion_buffer.push_back(detected);
+            if (static_cast<int>(emotion_buffer.size()) > SMOOTH_WINDOW) {
+                emotion_buffer.pop_front();
+            }
+            current_emotion = smoothEmotion(emotion_buffer);
+
+            // 显示情绪标签和置信度
+            std::string emotion_text = "Emotion: " + emotionToString(current_emotion);
+            cv::putText(frame, emotion_text,
+                        cv::Point(10, 60),
+                        cv::FONT_HERSHEY_SIMPLEX, 0.7,
+                        cv::Scalar(255, 200, 0), 2);
+
+            // 显示 Top3 置信度
+            auto& conf = recognizer.getConfidences();
+            if (!conf.empty()) {
+                std::vector<std::pair<float, int>> sorted;
+                for (int i = 0; i < static_cast<int>(conf.size()); ++i) {
+                    sorted.push_back({conf[i], i});
                 }
-                current_emotion = smoothEmotion(emotion_buffer);
-
-                // 显示情绪标签和置信度
-                std::string emotion_text = "Emotion: " + emotionToString(current_emotion);
-                cv::putText(frame, emotion_text,
-                            cv::Point(10, 60),
-                            cv::FONT_HERSHEY_SIMPLEX, 0.7,
-                            cv::Scalar(255, 200, 0), 2);
-
-                // 显示各情绪置信度
-                auto& conf = recognizer.getConfidences();
-                if (!conf.empty()) {
-                    // 只显示置信度最高的3个
-                    std::vector<std::pair<float, int>> sorted;
-                    for (int i = 0; i < static_cast<int>(conf.size()); ++i) {
-                        sorted.push_back({conf[i], i});
-                    }
-                    std::sort(sorted.rbegin(), sorted.rend());
-                    for (int i = 0; i < std::min(3, static_cast<int>(sorted.size())); ++i) {
-                        std::string txt = emotionToString(static_cast<Emotion>(sorted[i].second)) +
-                                          ": " + std::to_string(sorted[i].first * 100).substr(0, 5) + "%";
-                        cv::putText(frame, txt,
-                                    cv::Point(10, 120 + i * 20),
-                                    cv::FONT_HERSHEY_SIMPLEX, 0.45,
-                                    cv::Scalar(180, 180, 180), 1);
-                    }
+                std::sort(sorted.rbegin(), sorted.rend());
+                for (int i = 0; i < std::min(3, static_cast<int>(sorted.size())); ++i) {
+                    std::string txt = emotionToString(static_cast<Emotion>(sorted[i].second)) +
+                                      ": " + std::to_string(sorted[i].first * 100).substr(0, 5) + "%";
+                    cv::putText(frame, txt,
+                                cv::Point(10, 120 + i * 20),
+                                cv::FONT_HERSHEY_SIMPLEX, 0.45,
+                                cv::Scalar(180, 180, 180), 1);
                 }
+            }
 
-                // 显示音乐参数
-                auto params = mapper.mapToMusic(current_emotion);
-                std::string music_text = "Music: " + params.key + " " + params.scale +
-                                         " " + std::to_string(params.tempo) + "BPM";
-                cv::putText(frame, music_text,
-                            cv::Point(10, 90),
-                            cv::FONT_HERSHEY_SIMPLEX, 0.5,
-                            cv::Scalar(200, 200, 200), 1);
+            // 显示音乐参数
+            auto params = mapper.mapToMusic(current_emotion);
+            std::string music_text = "Music: " + params.key + " " + params.scale +
+                                     " " + std::to_string(params.tempo) + "BPM";
+            cv::putText(frame, music_text,
+                        cv::Point(10, 90),
+                        cv::FONT_HERSHEY_SIMPLEX, 0.5,
+                        cv::Scalar(200, 200, 200), 1);
 
-                // ---- 自动播放音乐 (每5秒) ----
-                if (music_enabled) {
-                    auto time_since_music = std::chrono::duration_cast<std::chrono::seconds>(
-                        now - last_music_time).count();
-                    if (time_since_music >= 5) {
-                        auto notes = generator.generate(params);
-                        player.play(notes);
-                        last_music_time = now;
-                        std::cout << "[播放] " << emotionToString(current_emotion)
-                                  << " -> " << params.key << " " << params.scale
-                                  << " " << params.tempo << "BPM" << std::endl;
-                    }
+            // 自动播放音乐 (每5秒)
+            if (music_enabled) {
+                auto time_since_music = std::chrono::duration_cast<std::chrono::seconds>(
+                    now - last_music_time).count();
+                if (time_since_music >= 5) {
+                    auto notes = generator.generate(params);
+                    player.play(notes);
+                    last_music_time = now;
+                    std::cout << "[播放] " << emotionToString(current_emotion)
+                              << " -> " << params.key << " " << params.scale
+                              << " " << params.tempo << "BPM" << std::endl;
                 }
             }
         } else {
-            // 没检测到人脸
             cv::putText(frame, "No face detected",
                         cv::Point(10, 60),
                         cv::FONT_HERSHEY_SIMPLEX, 0.7,
                         cv::Scalar(0, 0, 255), 2);
         }
 
-        // ---- 显示 FPS ----
+        // 显示 FPS
         cv::putText(frame, "FPS: " + std::to_string(static_cast<int>(fps)),
                     cv::Point(10, 30),
                     cv::FONT_HERSHEY_SIMPLEX, 0.7,
                     cv::Scalar(0, 255, 0), 2);
 
-        // 显示控制提示
-        cv::putText(frame, "ESC:Quit  SPACE:Play  M:ToggleMusic",
-                    cv::Point(10, frame.rows - 10),
-                    cv::FONT_HERSHEY_SIMPLEX, 0.4,
-                    cv::Scalar(180, 180, 180), 1);
-
         cv::imshow("Emotion Music Generator", frame);
 
-        // ---- 键盘控制 ----
+        // 键盘控制
         int key = cv::waitKey(is_image_mode ? 0 : 1);
-        if (is_image_mode && key >= 0) break;  // 图片模式按任意键退出
-        if (key == 27) break;  // ESC 退出
+        if (is_image_mode && key >= 0) break;
+        if (key == 27) break;
 
-        if (key == ' ') {      // 空格 手动播放
+        if (key == ' ') {
             auto params = mapper.mapToMusic(current_emotion);
             auto notes = generator.generate(params);
             player.play(notes);
             std::cout << "[手动播放] " << emotionToString(current_emotion) << std::endl;
         }
 
-        if (key == 'm' || key == 'M') {  // M 切换自动播放
+        if (key == 'm' || key == 'M') {
             music_enabled = !music_enabled;
             std::cout << "[自动播放] " << (music_enabled ? "开启" : "关闭") << std::endl;
         }
     }
 
-    // ---- 清理 ----
     cap.release();
     cv::destroyAllWindows();
     player.cleanup();

@@ -7,32 +7,26 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 # ---------- 依赖查找 ----------
 
-# OpenCV
+# OpenCV (必须)
 find_package(OpenCV REQUIRED)
 
-# dlib (手动查找，兼容 apt 安装和源码安装)
+# dlib (可选，仅用于 68 关键点可视化)
 find_path(DLIB_INCLUDE_DIR dlib/image_processing/frontal_face_detector.h)
 find_library(DLIB_LIBRARY dlib)
-# dlib 依赖 BLAS/LAPACK
-find_package(BLAS REQUIRED)
-find_package(LAPACK REQUIRED)
-if(NOT DLIB_INCLUDE_DIR OR NOT DLIB_LIBRARY)
-    message(FATAL_ERROR
-        "dlib 未找到。\n"
-        "  安装方式: sudo apt install libdlib-dev\n"
-        "  或从源码: git clone https://github.com/davisking/dlib.git && cd dlib/build && cmake .. && sudo make install"
-    )
+if(DLIB_INCLUDE_DIR AND DLIB_LIBRARY)
+    find_package(BLAS REQUIRED)
+    find_package(LAPACK REQUIRED)
+    add_compile_definitions(HAS_DLIB)
+    message(STATUS "dlib: 已找到 (${DLIB_LIBRARY})，启用 landmark 功能")
+else()
+    message(WARNING "dlib 未找到，68关键点功能将不可用（不影响人脸检测和情绪识别）")
 endif()
-message(STATUS "dlib: ${DLIB_LIBRARY}")
 
-# PortAudio
+# PortAudio (可选，音频播放)
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(PORTAUDIO portaudio-2.0)
 if(NOT PORTAUDIO_FOUND)
-    message(WARNING
-        "PortAudio 未找到，音频播放功能将不可用。\n"
-        "  安装方式: sudo apt install libportaudio2 portaudio19-dev"
-    )
+    message(WARNING "PortAudio 未找到，音频播放功能将不可用。\n  安装: sudo apt install libportaudio2 portaudio19-dev")
 endif()
 
 # ---------- 源文件 ----------
@@ -51,17 +45,24 @@ add_executable(emotion_music_generator ${SOURCES})
 target_include_directories(emotion_music_generator PRIVATE
     ${CMAKE_SOURCE_DIR}/src
     ${OpenCV_INCLUDE_DIRS}
-    ${DLIB_INCLUDE_DIR}
 )
 
 target_link_libraries(emotion_music_generator
     ${OpenCV_LIBS}
-    ${DLIB_LIBRARY}
-    ${BLAS_LIBRARIES}
-    ${LAPACK_LIBRARIES}
     pthread
 )
 
+# dlib 链接（如果找到）
+if(DLIB_INCLUDE_DIR AND DLIB_LIBRARY)
+    target_include_directories(emotion_music_generator PRIVATE ${DLIB_INCLUDE_DIR})
+    target_link_libraries(emotion_music_generator
+        ${DLIB_LIBRARY}
+        ${BLAS_LIBRARIES}
+        ${LAPACK_LIBRARIES}
+    )
+endif()
+
+# PortAudio 链接（如果找到）
 if(PORTAUDIO_FOUND)
     target_include_directories(emotion_music_generator PRIVATE ${PORTAUDIO_INCLUDE_DIRS})
     target_link_libraries(emotion_music_generator ${PORTAUDIO_LIBRARIES})
@@ -72,11 +73,8 @@ endif()
 
 # ---------- 编译选项 ----------
 
-target_compile_options(emotion_music_generator PRIVATE
-    -Wall -Wextra -Wpedantic
-)
+target_compile_options(emotion_music_generator PRIVATE -Wall -Wextra -Wpedantic)
 
-# Release 模式 -O3 优化
 if(CMAKE_BUILD_TYPE STREQUAL "Release")
     target_compile_options(emotion_music_generator PRIVATE -O3)
     message(STATUS "Release 模式: 启用 -O3 优化")
