@@ -84,9 +84,9 @@ int main(int argc, char* argv[]) {
     // landmark 模型可选（用于可视化关键点）
     detector.loadLandmarkModel("models/shape_predictor_68_face_landmarks.dat");
 
-    // ---- 初始化情绪识别 (Caffe FER) ----
+    // ---- 初始化情绪识别 (FER+ ONNX) ----
     EmotionRecognizer recognizer;
-    if (!recognizer.loadModel("models/emotion_detector")) {
+    if (!recognizer.loadModel("models/emotion-ferplus.onnx")) {
         std::cerr << "[错误] 情绪识别模型加载失败" << std::endl;
         return -1;
     }
