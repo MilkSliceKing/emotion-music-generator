@@ -116,7 +116,6 @@ int main(int argc, char* argv[]) {
         } else {
             cap >> frame;
         }
-        cap >> frame;
         if (frame.empty()) {
             std::cerr << "[警告] 空帧，摄像头可能断开" << std::endl;
             break;
