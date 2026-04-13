@@ -77,6 +77,7 @@ int main(int argc, char* argv[]) {
 
     // ---- 初始化人脸检测器 (OpenCV DNN SSD) ----
     FaceDetector detector;
+    detector.setConfidenceThreshold(0.3f);
     if (!detector.loadDetector("models/face_detector")) {
         std::cerr << "[错误] 人脸检测模型加载失败" << std::endl;
         return -1;
