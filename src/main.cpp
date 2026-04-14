@@ -133,6 +133,7 @@ int main(int argc, char* argv[]) {
 
         // ---- 面部检测 ----
         auto faces = detector.detectFaces(frame);
+        std::cout << "[检测] 发现 " << faces.size() << " 张人脸" << std::endl;
 
         if (!faces.empty()) {
             // 取最大的人脸
@@ -151,7 +152,9 @@ int main(int argc, char* argv[]) {
             }
 
             // ---- 情绪识别 ----
+            std::cout << "[情绪] 开始识别..." << std::endl;
             Emotion detected = recognizer.recognizeFromImage(frame, *biggest);
+            std::cout << "[情绪] 识别结果: " << emotionToString(detected) << std::endl;
             emotion_buffer.push_back(detected);
             if (static_cast<int>(emotion_buffer.size()) > SMOOTH_WINDOW) {
                 emotion_buffer.pop_front();
@@ -192,11 +195,11 @@ int main(int argc, char* argv[]) {
                         cv::FONT_HERSHEY_SIMPLEX, 0.5,
                         cv::Scalar(200, 200, 200), 1);
 
-            // 自动播放音乐 (每5秒)
+            // 自动播放音乐 (每5秒，图片模式立即播放)
             if (music_enabled) {
                 auto time_since_music = std::chrono::duration_cast<std::chrono::seconds>(
                     now - last_music_time).count();
-                if (time_since_music >= 5) {
+                if (is_image_mode || time_since_music >= 5) {
                     auto notes = generator.generate(params);
                     player.play(notes);
                     last_music_time = now;
@@ -222,7 +225,6 @@ int main(int argc, char* argv[]) {
 
         // 键盘控制
         int key = cv::waitKey(is_image_mode ? 0 : 1);
-        if (is_image_mode && key >= 0) break;
         if (key == 27) break;
 
         if (key == ' ') {
@@ -236,6 +238,8 @@ int main(int argc, char* argv[]) {
             music_enabled = !music_enabled;
             std::cout << "[自动播放] " << (music_enabled ? "开启" : "关闭") << std::endl;
         }
+
+        if (is_image_mode && key >= 0) break;
     }
 
     cap.release();
