@@ -62,6 +62,11 @@ void AudioPlayer::play(const std::vector<Note>& notes) {
         if (!init()) return;
     }
 
+    if (notes.empty()) {
+        std::cerr << "[AudioPlayer] 没有音符可播放" << std::endl;
+        return;
+    }
+
     const int sample_rate = 44100;
 
     // 合成所有音符
@@ -71,9 +76,22 @@ void AudioPlayer::play(const std::vector<Note>& notes) {
         audio_data.insert(audio_data.end(), wave.begin(), wave.end());
     }
 
+    std::cout << "[AudioPlayer] 合成 " << notes.size() << " 个音符, "
+              << audio_data.size() << " 个采样点, "
+              << audio_data.size() / static_cast<double>(sample_rate) << " 秒" << std::endl;
+
     // 配置输出参数
     PaStreamParameters output_params;
     output_params.device = Pa_GetDefaultOutputDevice();
+
+    // 打印设备信息
+    std::cout << "[AudioPlayer] 默认输出设备ID: " << output_params.device << std::endl;
+    if (output_params.device != paNoDevice) {
+        const PaDeviceInfo* info = Pa_GetDeviceInfo(output_params.device);
+        std::cout << "[AudioPlayer] 设备名: " << (info ? info->name : "null") << std::endl;
+        std::cout << "[AudioPlayer] Host API: " << Pa_GetHostApiInfo(info->hostApi)->name << std::endl;
+    }
+
     if (output_params.device == paNoDevice) {
         std::cerr << "[AudioPlayer] 未找到音频输出设备" << std::endl;
         return;
@@ -99,6 +117,7 @@ void AudioPlayer::play(const std::vector<Note>& notes) {
         std::cerr << "[AudioPlayer] 打开音频流失败: " << Pa_GetErrorText(err) << std::endl;
         return;
     }
+    std::cout << "[AudioPlayer] 音频流已打开" << std::endl;
 
     // 播放
     err = Pa_StartStream(reinterpret_cast<PaStream*>(stream_));
@@ -108,8 +127,14 @@ void AudioPlayer::play(const std::vector<Note>& notes) {
         stream_ = nullptr;
         return;
     }
+    std::cout << "[AudioPlayer] 开始播放..." << std::endl;
 
-    Pa_WriteStream(reinterpret_cast<PaStream*>(stream_), audio_data.data(), audio_data.size());
+    err = Pa_WriteStream(reinterpret_cast<PaStream*>(stream_), audio_data.data(), audio_data.size());
+    if (err != paNoError) {
+        std::cerr << "[AudioPlayer] 写入音频数据失败: " << Pa_GetErrorText(err) << std::endl;
+    } else {
+        std::cout << "[AudioPlayer] 播放完成" << std::endl;
+    }
 
     stop();
 }
