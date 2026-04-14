@@ -1,13 +1,18 @@
 #include "audio_player.h"
-
-#ifdef HAS_PORTAUDIO
-#include <portaudio.h>
 #include <cmath>
+#include <cstdlib>
+#include <cstring>
+#include <fstream>
 #include <iostream>
+#include <algorithm>
+
+#ifndef M_PI
+#define M_PI 3.14159265358979323846
+#endif
 
 AudioPlayer::AudioPlayer()
     : initialized_(false)
-    , stream_(nullptr)
+    , playing_(false)
 {
 }
 
@@ -16,13 +21,13 @@ AudioPlayer::~AudioPlayer() {
 }
 
 bool AudioPlayer::init() {
-    PaError err = Pa_Initialize();
-    if (err != paNoError) {
-        std::cerr << "[AudioPlayer] PortAudio 初始化失败: " << Pa_GetErrorText(err) << std::endl;
+    std::string cmd = findPlayerCommand();
+    if (cmd.empty()) {
+        std::cerr << "[AudioPlayer] 未找到可用的音频播放器 (paplay/aplay)" << std::endl;
         return false;
     }
     initialized_ = true;
-    std::cout << "[AudioPlayer] PortAudio 初始化成功" << std::endl;
+    std::cout << "[AudioPlayer] 初始化成功，使用: " << cmd << std::endl;
     return true;
 }
 
@@ -42,7 +47,7 @@ std::vector<float> AudioPlayer::generateSineWave(int pitch, double duration, int
     for (int i = 0; i < num_samples; ++i) {
         double t = static_cast<double>(i) / sample_rate;
 
-        // 简单 ADSR 包络 (只用 Attack + Sustain + Release)
+        // 简单包络 (Attack + Sustain + Release)
         double envelope = 1.0;
         if (t < attack) {
             envelope = t / attack;
@@ -55,6 +60,75 @@ std::vector<float> AudioPlayer::generateSineWave(int pitch, double duration, int
     }
 
     return samples;
+}
+
+bool AudioPlayer::writeWavFile(const std::string& filename,
+                                const std::vector<float>& samples,
+                                int sample_rate) {
+    // 将 float [-1.0, 1.0] 转为 16-bit PCM
+    int num_samples = static_cast<int>(samples.size());
+    std::vector<int16_t> pcm_data(num_samples);
+    for (int i = 0; i < num_samples; ++i) {
+        float clamped = std::max(-1.0f, std::min(1.0f, samples[i]));
+        pcm_data[i] = static_cast<int16_t>(clamped * 32767.0f);
+    }
+
+    int data_size = num_samples * 2;  // 16-bit = 2 bytes per sample
+    int file_size = 36 + data_size;    // RIFF header size
+
+    std::ofstream file(filename, std::ios::binary);
+    if (!file.is_open()) {
+        std::cerr << "[AudioPlayer] 无法创建 WAV 文件: " << filename << std::endl;
+        return false;
+    }
+
+    // WAV 文件头 (44 bytes)
+    uint8_t header[44];
+
+    // RIFF 标识
+    std::memcpy(header, "RIFF", 4);
+    uint32_t chunk_size = file_size;
+    std::memcpy(header + 4, &chunk_size, 4);
+    std::memcpy(header + 8, "WAVE", 4);
+
+    // fmt 子块
+    std::memcpy(header + 12, "fmt ", 4);
+    uint32_t fmt_size = 16;
+    std::memcpy(header + 16, &fmt_size, 4);
+    uint16_t audio_format = 1;    // PCM
+    uint16_t num_channels = 1;    // 单声道
+    uint32_t sr = sample_rate;
+    uint16_t bits_per_sample = 16;
+    uint16_t block_align = num_channels * bits_per_sample / 8;
+    uint32_t byte_rate = sr * block_align;
+    std::memcpy(header + 20, &audio_format, 2);
+    std::memcpy(header + 22, &num_channels, 2);
+    std::memcpy(header + 24, &sr, 4);
+    std::memcpy(header + 28, &byte_rate, 4);
+    std::memcpy(header + 32, &block_align, 2);
+    std::memcpy(header + 34, &bits_per_sample, 2);
+
+    // data 子块
+    std::memcpy(header + 36, "data", 4);
+    uint32_t ds = data_size;
+    std::memcpy(header + 40, &ds, 4);
+
+    file.write(reinterpret_cast<char*>(header), 44);
+    file.write(reinterpret_cast<char*>(pcm_data.data()), data_size);
+    file.close();
+
+    return true;
+}
+
+std::string AudioPlayer::findPlayerCommand() {
+    // 优先用 paplay (PulseAudio)，其次 aplay (ALSA)
+    if (std::system("which paplay > /dev/null 2>&1") == 0) {
+        return "paplay";
+    }
+    if (std::system("which aplay > /dev/null 2>&1") == 0) {
+        return "aplay";
+    }
+    return "";
 }
 
 void AudioPlayer::play(const std::vector<Note>& notes) {
@@ -76,95 +150,39 @@ void AudioPlayer::play(const std::vector<Note>& notes) {
         audio_data.insert(audio_data.end(), wave.begin(), wave.end());
     }
 
+    double duration = audio_data.size() / static_cast<double>(sample_rate);
     std::cout << "[AudioPlayer] 合成 " << notes.size() << " 个音符, "
-              << audio_data.size() << " 个采样点, "
-              << audio_data.size() / static_cast<double>(sample_rate) << " 秒" << std::endl;
+              << duration << " 秒" << std::endl;
 
-    // 配置输出参数
-    PaStreamParameters output_params;
-    output_params.device = Pa_GetDefaultOutputDevice();
-
-    // 打印设备信息
-    std::cout << "[AudioPlayer] 默认输出设备ID: " << output_params.device << std::endl;
-    if (output_params.device != paNoDevice) {
-        const PaDeviceInfo* info = Pa_GetDeviceInfo(output_params.device);
-        std::cout << "[AudioPlayer] 设备名: " << (info ? info->name : "null") << std::endl;
-        std::cout << "[AudioPlayer] Host API: " << Pa_GetHostApiInfo(info->hostApi)->name << std::endl;
-    }
-
-    if (output_params.device == paNoDevice) {
-        std::cerr << "[AudioPlayer] 未找到音频输出设备" << std::endl;
+    // 写入临时 WAV 文件
+    std::string wav_path = "/tmp/emotion_music.wav";
+    if (!writeWavFile(wav_path, audio_data, sample_rate)) {
+        std::cerr << "[AudioPlayer] WAV 文件写入失败" << std::endl;
         return;
     }
-    output_params.channelCount = 1;
-    output_params.sampleFormat = paFloat32;
-    output_params.suggestedLatency = Pa_GetDeviceInfo(output_params.device)->defaultLowOutputLatency;
-    output_params.hostApiSpecificStreamInfo = nullptr;
 
-    // 打开音频流
-    PaError err = Pa_OpenStream(
-        reinterpret_cast<PaStream**>(&stream_),
-        nullptr,
-        &output_params,
-        sample_rate,
-        audio_data.size(),
-        paClipOff,
-        nullptr,
-        nullptr
-    );
+    // 用系统播放器播放
+    playing_ = true;
+    std::string player_cmd = findPlayerCommand();
+    std::string cmd = player_cmd + " " + wav_path + " > /dev/null 2>&1";
+    int ret = std::system(cmd.c_str());
+    playing_ = false;
 
-    if (err != paNoError) {
-        std::cerr << "[AudioPlayer] 打开音频流失败: " << Pa_GetErrorText(err) << std::endl;
-        return;
-    }
-    std::cout << "[AudioPlayer] 音频流已打开" << std::endl;
-
-    // 播放
-    err = Pa_StartStream(reinterpret_cast<PaStream*>(stream_));
-    if (err != paNoError) {
-        std::cerr << "[AudioPlayer] 启动音频流失败: " << Pa_GetErrorText(err) << std::endl;
-        Pa_CloseStream(reinterpret_cast<PaStream*>(stream_));
-        stream_ = nullptr;
-        return;
-    }
-    std::cout << "[AudioPlayer] 开始播放..." << std::endl;
-
-    err = Pa_WriteStream(reinterpret_cast<PaStream*>(stream_), audio_data.data(), audio_data.size());
-    if (err != paNoError) {
-        std::cerr << "[AudioPlayer] 写入音频数据失败: " << Pa_GetErrorText(err) << std::endl;
+    if (ret != 0) {
+        std::cerr << "[AudioPlayer] 播放失败 (返回值: " << ret << ")" << std::endl;
     } else {
         std::cout << "[AudioPlayer] 播放完成" << std::endl;
     }
-
-    stop();
 }
 
 void AudioPlayer::stop() {
-    if (stream_) {
-        Pa_StopStream(reinterpret_cast<PaStream*>(stream_));
-        Pa_CloseStream(reinterpret_cast<PaStream*>(stream_));
-        stream_ = nullptr;
-    }
+    // 终止正在播放的进程
+    std::system("killall paplay 2>/dev/null");
+    std::system("killall aplay 2>/dev/null");
+    playing_ = false;
 }
 
 void AudioPlayer::cleanup() {
     stop();
-    if (initialized_) {
-        Pa_Terminate();
-        initialized_ = false;
-    }
+    initialized_ = false;
 }
-
-#else
-// PortAudio 未安装时的桩实现
-AudioPlayer::AudioPlayer() : initialized_(false), stream_(nullptr) {}
-AudioPlayer::~AudioPlayer() {}
-bool AudioPlayer::init() { return false; }
-void AudioPlayer::play(const std::vector<Note>&) {
-    std::cerr << "[AudioPlayer] PortAudio 未安装，音频功能不可用" << std::endl;
-}
-void AudioPlayer::stop() {}
-void AudioPlayer::cleanup() {}
-double AudioPlayer::midiToFrequency(int) { return 0; }
-std::vector<float> AudioPlayer::generateSineWave(int, double, int) { return {}; }
-#endif

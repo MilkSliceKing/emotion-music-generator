@@ -20,13 +20,6 @@ if(NOT DLIB_INCLUDE_DIR OR NOT DLIB_LIBRARY)
 endif()
 message(STATUS "dlib: ${DLIB_LIBRARY}")
 
-# PortAudio (可选)
-find_package(PkgConfig REQUIRED)
-pkg_check_modules(PORTAUDIO portaudio-2.0)
-if(NOT PORTAUDIO_FOUND)
-    message(WARNING "PortAudio 未找到，音频播放功能将不可用。\n  安装: sudo apt install libportaudio2 portaudio19-dev")
-endif()
-
 # ---------- 源文件 ----------
 
 set(SOURCES
@@ -53,14 +46,6 @@ target_link_libraries(emotion_music_generator
     ${LAPACK_LIBRARIES}
     pthread
 )
-
-if(PORTAUDIO_FOUND)
-    target_include_directories(emotion_music_generator PRIVATE ${PORTAUDIO_INCLUDE_DIRS})
-    target_link_libraries(emotion_music_generator ${PORTAUDIO_LIBRARIES})
-    target_compile_definitions(emotion_music_generator PRIVATE HAS_PORTAUDIO)
-else()
-    message(STATUS "将以无音频模式编译 (PortAudio 未安装)")
-endif()
 
 # ---------- 编译选项 ----------
 
