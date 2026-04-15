@@ -185,10 +185,96 @@ dlib HOG 人脸检测 → 68关键点可视化
 - 支持图片/视频/摄像头三种输入模式
 - 完整流水线跑通
 
-#### 八、下一步计划
+---
 
-- [ ] 修复 OpenCV DNN SSD 人脸检测（找到正确的 prototxt）
+## 日期：2026-04-15
+
+### 任务：音频播放模块调试 — 从无声到有声
+
+#### 一、问题描述
+
+端到端流水线已跑通（人脸检测 → 情绪识别 → 音乐生成），但实际运行时**没有声音输出**。
+
+- VM 可以发出声音（调音量有提示音）
+- 已连接电脑声卡
+- 情绪识别结果正确（Angry → E minor 160BPM）
+- 程序无报错，所有 `[AudioPlayer]` 日志正常
+
+#### 二、排查过程
+
+**发现1：VM 代码与 Windows 代码不同步**
+
+| | Windows 端 | VM 端 |
+|---|---|---|
+| 播放方案 | paplay/aplay（写 WAV + fork 子进程） | PortAudio（直接 API 调用） |
+| 条件编译 | 无 | `#ifdef HAS_PORTAUDIO` |
+| 来源 | AI 生成的初版代码 | 手动在 VM 上修改的版本 |
+
+VM 端使用了 PortAudio 方案，通过 ALSA Host API 播放，但 ALSA 输出没有正确路由到 PulseAudio。
+
+```
+PortAudio → ALSA "default" 设备 → 路由失败 → 无声音
+PulseAudio → alsa_output.pci-0000_02_02.0.analog-stereo → 正常
+```
+
+**发现2：VMware 虚拟声卡掉线**
+
+排查过程中发现 `aplay` 和 `paplay` 均无法播放测试音频：
+- PulseAudio sink 存在但 `SUSPENDED` 状态
+- 音量 100%、未静音
+- 直接 `aplay -D hw:0,0` 也没声
+
+**解决方案**：在 VMware 中移除声卡设备 → 重新添加 → 重启 VM，音频恢复。
+
+**发现3：VM Git 代理失效**
+
+VM 端 `git pull` 连接失败，代理配置为 `127.0.0.1:7897`（已不可用）。
+
+**解决方案**：
+```bash
+git config --global --replace-all http.proxy http://10.38.70.118:7897
+```
+使用 Windows 宿主机 IP 作为代理地址。
+
+#### 三、最终修复
+
+将 VM 端 `audio_player.cpp` 从 PortAudio 方案切换为 paplay/aplay 方案（与 Windows 端一致）：
+
+```
+合成正弦波音符 → 写入 /tmp/emotion_music.wav → fork() → execlp("paplay") → 播放
+```
+
+同步方式：Windows 端推送 GitHub → VM 端 `git pull` → `cmake .. && make` → 运行
+
+#### 四、运行结果
+
+```bash
+./build/emotion_music_generator image test_images/test9.jpg
+# [情绪] 识别结果: Angry
+# [AudioPlayer] 合成 8 个音符, 3.0 秒
+# [AudioPlayer] 开始播放
+# 成功发出声音！
+```
+
+**端到端流水线完整跑通**：
+```
+dlib 人脸检测 → DeepFace 情绪识别(Angry) → 情绪映射(E minor 160BPM)
+    → 音乐生成(8个音符) → WAV 合成 → paplay 播放 → ✓ 有声音
+```
+
+#### 五、遇到的问题汇总
+
+| # | 问题 | 原因 | 解决方案 |
+|---|------|------|---------|
+| 1 | 程序运行无声音 | PortAudio ALSA 通道未路由到 PulseAudio | 换用 paplay/aplay 方案 |
+| 2 | aplay/paplay 也没声 | VMware 虚拟声卡掉线 | 移除并重新添加 VMware 声卡 |
+| 3 | VM git pull 失败 | 代理 127.0.0.1:7897 不可用 | 改用 Windows IP 10.38.70.118:7897 |
+| 4 | git config 多值冲突 | 旧的 proxy 配置残留 | `--replace-all` 覆盖 |
+
+---
+
+#### 下一步计划（可选优化）
+
 - [ ] 用摄像头测试实时情绪识别
-- [ ] 安装 PortAudio 测试音频播放
 - [ ] 优化 DeepFace 调用速度（当前每次识别需 1-2 秒）
 - [ ] 记录性能数据到 perf.md

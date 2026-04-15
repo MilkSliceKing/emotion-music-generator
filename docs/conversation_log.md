@@ -220,16 +220,68 @@ C++ 人脸检测(dlib) → 裁剪人脸保存临时图片 → 调用 Python Deep
 
 ---
 
+## 会话日期：2026-04-15
+
+### 主题：音频播放模块调试 — PortAudio → paplay 方案切换
+
+---
+
+### Q23: 端到端流水线没声音
+
+**用户**：目前 VM 里确定可以发出声音，情绪检测完生成对应的声音也没问题，也连上电脑的声卡了，但是就是没办法根据表情进而发出声音。
+
+**AI 排查过程**：
+
+1. 首先读取了 Windows 端所有源码，发现 Windows 版使用 `paplay/aplay` 播放 WAV 文件
+2. 但 VM 端代码与 Windows 不同步，VM 使用的是 **PortAudio** 直接播放
+3. VM 端 `audio_player.cpp` 通过 `#ifdef HAS_PORTAUDIO` 条件编译使用 PortAudio API
+4. PortAudio 初始化成功、合成音符、打开音频流、播放完成 — 全部无报错
+5. 但实际没有声音输出
+
+**诊断结果**：
+
+```
+VM 音频架构：
+PortAudio → ALSA Host API → "default" 设备 → 无声音
+
+系统实际音频链路：
+PulseAudio → alsa_output.pci-0000_02_02.0.analog-stereo → 正常
+
+问题：PortAudio 走 ALSA 通道没有正确路由到 PulseAudio
+```
+
+中间还发现 VMware 虚拟声卡断开（`aplay` 和 `paplay` 都没声），通过移除并重新添加 VMware 声卡恢复。
+
+**最终修复**：
+
+将 VM 端 `audio_player.cpp` 从 PortAudio 方案切换为 paplay/aplay 方案（与 Windows 端一致）：
+- 合成音频 → 写入 `/tmp/emotion_music.wav` → `fork()` + `execlp("paplay")` 播放
+- 通过 Windows 推送 GitHub → VM 拉取 → 重新编译
+
+**VM 端代理修复**：`git config --global --replace-all http.proxy http://10.38.70.118:7897`
+
+**最终测试结果**：
+
+```bash
+./build/emotion_music_generator image test_images/test9.jpg
+# 情绪识别: Angry
+# 音频播放: 成功发出声音！
+```
+
+**用户反馈**：终于有声了！
+
+---
+
 ## 总结
 
 | 项目 | 详情 |
 |------|------|
-| 总开发时间 | 2026-04-12 ~ 04-13（约 6 小时） |
+| 总开发时间 | 2026-04-12 ~ 04-15（约 8 小时） |
 | AI 工具 | Claude Code (GLM 5.1) |
-| 遇到问题总数 | 22 个 |
+| 遇到问题总数 | 23 个 |
 | 全部解决 | 是 |
-| 当前状态 | 人脸检测 + 情绪识别完整流水线跑通 |
-| 最终方案 | dlib HOG 人脸检测 + DeepFace Python 桥接情绪识别 |
+| 当前状态 | 人脸检测 + 情绪识别 + 音频播放完整流水线跑通 |
+| 最终方案 | dlib HOG 人脸检测 + DeepFace Python 桥接情绪识别 + paplay WAV 播放 |
 
 ### 情绪识别方案演进史
 
@@ -245,4 +297,12 @@ FER+ ONNX 模型 → 全输出 Neutral
 DeepFace Python → angry 86% ✓ 成功！
     ↓
 C++ + Python 桥接 → 最终方案
+```
+
+### 音频播放方案演进史
+
+```
+PortAudio 直接播放 → ALSA 通道不通 PulseAudio → 无声音
+    ↓
+paplay/aplay 播放 WAV → 走 PulseAudio → ✓ 有声音！
 ```
