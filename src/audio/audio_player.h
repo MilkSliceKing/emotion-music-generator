@@ -14,10 +14,12 @@ public:
     void play(const std::vector<Note>& notes);
     void stop();
     void cleanup();
+    bool isPlaying();
 
 private:
     bool initialized_;
     bool playing_;
+    pid_t child_pid_ = -1;
 
     // 生成正弦波音频数据
     std::vector<float> generateSineWave(int pitch, double duration,

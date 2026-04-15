@@ -215,8 +215,12 @@ int main(int argc, char* argv[]) {
                         cv::Scalar(0, 0, 255), 2);
         }
 
-        // 显示 FPS
-        cv::putText(frame, "FPS: " + std::to_string(static_cast<int>(fps)),
+        // 显示 FPS + 播放状态
+        std::string status_text = "FPS: " + std::to_string(static_cast<int>(fps));
+        if (player.isPlaying()) {
+            status_text += "  [Playing]";
+        }
+        cv::putText(frame, status_text,
                     cv::Point(10, 30),
                     cv::FONT_HERSHEY_SIMPLEX, 0.7,
                     cv::Scalar(0, 255, 0), 2);

@@ -5,6 +5,11 @@
 #include <fstream>
 #include <iostream>
 #include <algorithm>
+#include <sys/types.h>
+#include <sys/wait.h>
+#include <sys/stat.h>
+#include <signal.h>
+#include <unistd.h>
 
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
@@ -13,6 +18,7 @@
 AudioPlayer::AudioPlayer()
     : initialized_(false)
     , playing_(false)
+    , child_pid_(-1)
 {
 }
 
@@ -56,7 +62,7 @@ std::vector<float> AudioPlayer::generateSineWave(int pitch, double duration, int
             if (envelope < 0) envelope = 0;
         }
 
-        samples[i] = static_cast<float>(envelope * 0.3 * std::sin(2.0 * M_PI * freq * t));
+        samples[i] = static_cast<float>(envelope * 0.5 * std::sin(2.0 * M_PI * freq * t));
     }
 
     return samples;
@@ -122,10 +128,10 @@ bool AudioPlayer::writeWavFile(const std::string& filename,
 
 std::string AudioPlayer::findPlayerCommand() {
     // 优先用 paplay (PulseAudio)，其次 aplay (ALSA)
-    if (std::system("which paplay > /dev/null 2>&1") == 0) {
+    if (std::system("command -v paplay > /dev/null 2>&1") == 0) {
         return "paplay";
     }
-    if (std::system("which aplay > /dev/null 2>&1") == 0) {
+    if (std::system("command -v aplay > /dev/null 2>&1") == 0) {
         return "aplay";
     }
     return "";
@@ -133,12 +139,20 @@ std::string AudioPlayer::findPlayerCommand() {
 
 void AudioPlayer::play(const std::vector<Note>& notes) {
     if (!initialized_) {
-        if (!init()) return;
+        if (!init()) {
+            std::cerr << "[AudioPlayer] 初始化失败，无法播放" << std::endl;
+            return;
+        }
     }
 
     if (notes.empty()) {
         std::cerr << "[AudioPlayer] 没有音符可播放" << std::endl;
         return;
+    }
+
+    // 如果上一次还在播放，先停止
+    if (child_pid_ > 0) {
+        stop();
     }
 
     const int sample_rate = 44100;
@@ -161,22 +175,64 @@ void AudioPlayer::play(const std::vector<Note>& notes) {
         return;
     }
 
-    // 用系统播放器播放
-    playing_ = true;
-    std::string player_cmd = findPlayerCommand();
-    std::string cmd = player_cmd + " " + wav_path + " > /dev/null 2>&1";
-    int ret = std::system(cmd.c_str());
-    playing_ = false;
-
-    if (ret != 0) {
-        std::cerr << "[AudioPlayer] 播放失败 (返回值: " << ret << ")" << std::endl;
+    // 验证 WAV 文件
+    struct stat st;
+    if (stat(wav_path.c_str(), &st) == 0) {
+        std::cout << "[AudioPlayer] WAV 文件: " << wav_path
+                  << " (" << st.st_size << " 字节)" << std::endl;
     } else {
-        std::cout << "[AudioPlayer] 播放完成" << std::endl;
+        std::cerr << "[AudioPlayer] WAV 文件不存在，写入可能失败" << std::endl;
+        return;
+    }
+
+    // fork 子进程异步播放，不阻塞主线程
+    std::string player_cmd = findPlayerCommand();
+    pid_t pid = fork();
+
+    if (pid == 0) {
+        // 子进程：直接 exec 播放器，不经过 shell
+        execlp(player_cmd.c_str(), player_cmd.c_str(), wav_path.c_str(), (char*)nullptr);
+        // 如果 exec 失败
+        std::cerr << "[AudioPlayer] execlp 失败: " << player_cmd << std::endl;
+        _exit(127);
+    } else if (pid > 0) {
+        // 父进程：继续主循环，不阻塞
+        child_pid_ = pid;
+        playing_ = true;
+        std::cout << "[AudioPlayer] 开始播放 (PID: " << pid
+                  << ", 播放器: " << player_cmd << ")" << std::endl;
+    } else {
+        std::cerr << "[AudioPlayer] fork() 失败" << std::endl;
     }
 }
 
+bool AudioPlayer::isPlaying() {
+    if (child_pid_ > 0) {
+        int status;
+        pid_t ret = waitpid(child_pid_, &status, WNOHANG);
+        if (ret == 0) {
+            return true;  // 还在播放中
+        }
+        // 子进程已结束
+        child_pid_ = -1;
+        playing_ = false;
+        if (WIFEXITED(status) && WEXITSTATUS(status) != 0) {
+            std::cerr << "[AudioPlayer] 播放器退出码: " << WEXITSTATUS(status)
+                      << " (播放器可能未正确配置)" << std::endl;
+        } else {
+            std::cout << "[AudioPlayer] 播放完成" << std::endl;
+        }
+    }
+    return false;
+}
+
 void AudioPlayer::stop() {
-    // 终止正在播放的进程
+    if (child_pid_ > 0) {
+        kill(child_pid_, SIGTERM);
+        int status;
+        waitpid(child_pid_, &status, 0);  // 回收子进程
+        child_pid_ = -1;
+    }
     std::system("killall paplay 2>/dev/null");
     std::system("killall aplay 2>/dev/null");
     playing_ = false;
