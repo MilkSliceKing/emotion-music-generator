@@ -25,9 +25,15 @@ Thumbs.db
 
 # 模型文件 (太大，不纳入 git)
 models/*.dat
+models/**/*.dat
 models/*.pkl
+models/**/*.pkl
 models/*.h5
+models/**/*.h5
 models/*.onnx
+models/**/*.onnx
+models/*.caffemodel
+models/**/*.caffemodel
 
 # 依赖目录
 dlib/
