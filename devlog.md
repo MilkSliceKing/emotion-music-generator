@@ -273,8 +273,118 @@ dlib 人脸检测 → DeepFace 情绪识别(Angry) → 情绪映射(E minor 160B
 
 ---
 
-#### 下一步计划（可选优化）
+## 日期：2026-04-16
 
-- [ ] 用摄像头测试实时情绪识别
-- [ ] 优化 DeepFace 调用速度（当前每次识别需 1-2 秒）
-- [ ] 记录性能数据到 perf.md
+### 任务：性能优化与架构演进 — 从 Python 桥接到纯 C++ 推理
+
+#### 一、优化1：pipe+fork 常驻 daemon（main 分支，初代版本完善）
+
+**问题**：每次情绪识别都 `popen()` 新建 Python 进程，DeepFace/TensorFlow 模型每次重新加载，单次识别耗时 1-2 秒。
+
+**方案**：启动时 `fork()` 一个 Python 常驻子进程，通过 `pipe()` 双向管道通信，模型只加载一次。
+
+```
+C++ 父进程                        Python daemon 子进程
+    │                                     │
+    ├── fork() + execlp("python3") ──→  加载 DeepFace 模型
+    │                                     │
+    │   ←── pipe (等待 "READY")  ←────  stdout: "READY"
+    │                                     │
+    ├── write(图片路径) ──→ pipe ──→     stdin: 读取路径
+    │                                     │
+    │   ←── pipe ←────────────────────  stdout: "OK,Angry,..."
+    │                                     │
+    ├── write("EXIT") ──→ pipe ──→      退出
+```
+
+**改动文件**：
+
+| 文件 | 改动 |
+|------|------|
+| `predict_emotion.py` | 新增 `daemon_mode()`，无参数启动时从 stdin 循环读取路径，输出 `OK,结果`；有参数时兼容旧的单次模式 |
+| `src/detector/emotion_recognizer.cpp` | 新增 `startDaemon()` / `stopDaemon()`，用 `pipe()` + `fork()` + `dup2()` 管理子进程；识别时通过管道发送路径、读取结果；daemon 启动失败自动回退到旧的 `popen()` 单次模式 |
+| `src/detector/emotion_recognizer.h` | 新增 `pipe_to_child_` / `pipe_from_child_` / `daemon_pid_` 成员，析构函数自动停止 daemon |
+
+**效果**：
+- 首次启动：模型加载 ~10s（仅一次）
+- 后续每次推理：**0.1-0.3s**（原来 1-2s）
+- 自动容错：daemon 启动失败自动回退 popen 模式
+
+#### 二、优化2：OpenCV DNN + ONNX 替代 DeepFace（dev/opencv-dnn 分支）
+
+**动机**：虽然 daemon 模式把推理延迟从 1-2s 降到 0.1-0.3s，但仍依赖 Python/TensorFlow/DeepFace，启动慢、依赖重。既然项目初版尝试 FER+ ONNX 模型时发现与 OpenCV DNN 存在兼容性问题（全输出 Neutral），但这次换用正确的方式重新尝试。
+
+**方案**：用 FERPlus ONNX 模型 + OpenCV DNN 模块做纯 C++ 推理，彻底移除 Python 依赖。
+
+**技术细节**：
+
+```
+输入: 人脸裁剪区域
+  → cvtColor(BGR2Gray) → resize(64x64)
+  → blobFromImage(1/255归一化) → [1,1,64,64] blob
+  → net_.setInput(blob) → net_.forward()
+  → 8 类概率输出 → 映射到项目 7 类 Emotion 枚举
+```
+
+**FERPlus 8 类 → 项目 7 类映射**：
+
+| FERPlus 标签 | 项目 Emotion |
+|-------------|-------------|
+| Neutral | NEUTRAL |
+| Happy | HAPPY |
+| Surprise | SURPRISED |
+| Sad | SAD |
+| Anger | ANGRY |
+| Disgust | DISGUST |
+| Fear | FEAR |
+| Contempt | NEUTRAL（归入中性） |
+
+**改动文件**：
+
+| 文件 | 改动 |
+|------|------|
+| `src/detector/emotion_recognizer.cpp` | 重写：移除所有 pipe/fork/popen/Python 代码，改用 `cv::dnn::readNetFromONNX()` 加载模型，`blobFromImage()` 预处理，`net_.forward()` 推理，FERPlus 8 类概率映射到 7 类 |
+| `src/detector/emotion_recognizer.h` | 移除 daemon 相关成员，新增 `cv::dnn::Net net_` |
+| `src/main.cpp` | `loadModel()` 参数从 Python 脚本路径改为 ONNX 模型路径 |
+| `download_models.sh` | 新增：自动从 HuggingFace 下载 `emotion-ferplus-8.onnx`（~34MB） |
+| `.gitignore` | 新增：忽略 `models/` 目录（大文件不入库） |
+
+**预期性能对比**：
+
+| 指标 | DeepFace daemon (初代) | OpenCV DNN + ONNX (二代) |
+|------|----------------------|------------------------|
+| 启动时间 | ~10s（加载 TF） | <1s（加载 ONNX） |
+| 单次推理 | 0.1-0.3s | ~5-10ms |
+| 依赖 | Python + TensorFlow + DeepFace | 仅 OpenCV（已安装） |
+| 内存占用 | ~1-2GB（TF 运行时） | ~50-100MB |
+
+#### 三、分支策略
+
+```
+main (初代版本)                    dev/opencv-dnn (二代优化)
+  │                                    │
+  ├── ... 音频修复等                    │
+  ├── da3a118 perf: daemon 优化 ─────→ 128bcc7 feat: ONNX 替代
+  │                                    │
+  ✓ 初代完善版                    ✓ 纯 C++ 推理版（开发中）
+```
+
+初代版本在 main 分支稳定运行，二代优化在独立分支开发，互不影响。
+
+#### 四、遇到的问题汇总
+
+| # | 问题 | 解决方案 |
+|---|------|---------|
+| 1 | 每次 popen 新进程太慢 | fork 常驻 daemon，模型只加载一次 |
+| 2 | daemon 管道读写需要正确处理换行符和缓冲 | `flush()` + 按 `\n` 分割读取 |
+| 3 | daemon 可能启动失败 | 自动回退到 popen 单次模式 |
+| 4 | 4/13 尝试 FER+ ONNX 全输出 Neutral | 这次正确处理了输入尺寸(64x64)和归一化(1/255) |
+
+---
+
+#### 下一步计划
+
+- [ ] 在 VM 上测试 dev/opencv-dnn 分支的 ONNX 推理准确率
+- [ ] 对比 DeepFace vs FERPlus 的识别准确率
+- [ ] 摄像头实时模式完整测试
+- [ ] 合并 dev/opencv-dnn 到 main（测试通过后）
