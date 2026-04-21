@@ -55,20 +55,29 @@ std::vector<cv::Point> FaceDetector::getLandmarks(const cv::Mat& frame, const Fa
     return landmarks;
 }
 
-void FaceDetector::drawFace(cv::Mat& frame, const FaceRect& face) {
-    cv::rectangle(frame,
-                  cv::Point(face.x, face.y),
-                  cv::Point(face.x + face.width, face.y + face.height),
-                  cv::Scalar(0, 255, 0), 2);
-    cv::putText(frame, "Face",
-                cv::Point(face.x, face.y - 8),
-                cv::FONT_HERSHEY_SIMPLEX, 0.5,
-                cv::Scalar(0, 255, 0), 1);
+void FaceDetector::drawFace(cv::Mat& frame, const FaceRect& face,
+                             const cv::Scalar& color) {
+    int x = face.x, y = face.y, w = face.width, h = face.height;
+    int corner = std::min({15, w / 4, h / 4});
+    int thick = 3;
+
+    // 四角装饰线
+    cv::line(frame, cv::Point(x, y), cv::Point(x + corner, y), color, thick);
+    cv::line(frame, cv::Point(x, y), cv::Point(x, y + corner), color, thick);
+
+    cv::line(frame, cv::Point(x + w, y), cv::Point(x + w - corner, y), color, thick);
+    cv::line(frame, cv::Point(x + w, y), cv::Point(x + w, y + corner), color, thick);
+
+    cv::line(frame, cv::Point(x, y + h), cv::Point(x + corner, y + h), color, thick);
+    cv::line(frame, cv::Point(x, y + h), cv::Point(x, y + h - corner), color, thick);
+
+    cv::line(frame, cv::Point(x + w, y + h), cv::Point(x + w - corner, y + h), color, thick);
+    cv::line(frame, cv::Point(x + w, y + h), cv::Point(x + w, y + h - corner), color, thick);
 }
 
 void FaceDetector::drawLandmarks(cv::Mat& frame, const std::vector<cv::Point>& landmarks) {
     for (size_t i = 0; i < landmarks.size(); ++i) {
-        cv::circle(frame, landmarks[i], 2, cv::Scalar(0, 0, 255), -1);
+        cv::circle(frame, landmarks[i], 1, cv::Scalar(230, 180, 100), -1);
     }
 }
 

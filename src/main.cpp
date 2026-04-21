@@ -8,6 +8,7 @@
 #include "mapper/emotion_mapper.h"
 #include "generator/music_generator.h"
 #include "audio/audio_player.h"
+#include "ui/overlay_renderer.h"
 
 // 情绪平滑缓冲区大小
 static constexpr int SMOOTH_WINDOW = 5;
@@ -82,7 +83,7 @@ int main(int argc, char* argv[]) {
         return -1;
     }
 
-    // ---- 初始化情绪识别 (OpenCV DNN, ONNX) ----
+    // ---- 初始化情绪识别 (onnxruntime, HSEmotion ONNX) ----
     EmotionRecognizer recognizer;
     if (!recognizer.loadModel("models/emotion_detector/enet_b0_8_best_afew.onnx")) {
         std::cerr << "[错误] 情绪识别模型加载失败" << std::endl;
@@ -93,6 +94,7 @@ int main(int argc, char* argv[]) {
     EmotionMapper mapper;
     MusicGenerator generator;
     AudioPlayer player;
+    OverlayRenderer renderer;
 
     std::cout << "[初始化] 完成!" << std::endl;
     if (!is_image_mode) {
@@ -102,13 +104,15 @@ int main(int argc, char* argv[]) {
     // ---- 主循环 ----
     cv::Mat frame;
     auto last_time = std::chrono::steady_clock::now();
-    int frame_count = 0;
+    int fps_counter = 0;
+    int total_frames = 0;
     double fps = 0.0;
 
     std::deque<Emotion> emotion_buffer;
     Emotion current_emotion = Emotion::NEUTRAL;
     auto last_music_time = std::chrono::steady_clock::now();
     bool music_enabled = true;
+    MusicParams current_params = mapper.mapToMusic(Emotion::NEUTRAL);
 
     while (true) {
         if (is_image_mode) {
@@ -122,12 +126,13 @@ int main(int argc, char* argv[]) {
         }
 
         // ---- FPS 计算 ----
-        frame_count++;
+        fps_counter++;
+        total_frames++;
         auto now = std::chrono::steady_clock::now();
         auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now - last_time).count();
         if (elapsed >= 1000) {
-            fps = frame_count * 1000.0 / elapsed;
-            frame_count = 0;
+            fps = fps_counter * 1000.0 / elapsed;
+            fps_counter = 0;
             last_time = now;
         }
 
@@ -135,17 +140,19 @@ int main(int argc, char* argv[]) {
         auto faces = detector.detectFaces(frame);
         std::cout << "[检测] 发现 " << faces.size() << " 张人脸" << std::endl;
 
-        if (!faces.empty()) {
+        bool face_detected = !faces.empty();
+
+        if (face_detected) {
             // 取最大的人脸
             auto biggest = std::max_element(faces.begin(), faces.end(),
                 [](const FaceRect& a, const FaceRect& b) {
                     return a.width * a.height < b.width * b.height;
                 });
 
-            // 绘制面部框
-            detector.drawFace(frame, *biggest);
+            // 绘制面部框（使用情绪对应颜色）
+            detector.drawFace(frame, *biggest, OverlayRenderer::getEmotionColor(current_emotion));
 
-            // 提取并绘制关键点（如果 landmark 模型可用）
+            // 提取并绘制关键点
             auto landmarks = detector.getLandmarks(frame, *biggest);
             if (!landmarks.empty()) {
                 detector.drawLandmarks(frame, landmarks);
@@ -160,70 +167,28 @@ int main(int argc, char* argv[]) {
                 emotion_buffer.pop_front();
             }
             current_emotion = smoothEmotion(emotion_buffer);
-
-            // 显示情绪标签和置信度
-            std::string emotion_text = "Emotion: " + emotionToString(current_emotion);
-            cv::putText(frame, emotion_text,
-                        cv::Point(10, 60),
-                        cv::FONT_HERSHEY_SIMPLEX, 0.7,
-                        cv::Scalar(255, 200, 0), 2);
-
-            // 显示 Top3 置信度
-            auto& conf = recognizer.getConfidences();
-            if (!conf.empty()) {
-                std::vector<std::pair<float, int>> sorted;
-                for (int i = 0; i < static_cast<int>(conf.size()); ++i) {
-                    sorted.push_back({conf[i], i});
-                }
-                std::sort(sorted.rbegin(), sorted.rend());
-                for (int i = 0; i < std::min(3, static_cast<int>(sorted.size())); ++i) {
-                    std::string txt = emotionToString(static_cast<Emotion>(sorted[i].second)) +
-                                      ": " + std::to_string(sorted[i].first * 100).substr(0, 5) + "%";
-                    cv::putText(frame, txt,
-                                cv::Point(10, 120 + i * 20),
-                                cv::FONT_HERSHEY_SIMPLEX, 0.45,
-                                cv::Scalar(180, 180, 180), 1);
-                }
-            }
-
-            // 显示音乐参数
-            auto params = mapper.mapToMusic(current_emotion);
-            std::string music_text = "Music: " + params.key + " " + params.scale +
-                                     " " + std::to_string(params.tempo) + "BPM";
-            cv::putText(frame, music_text,
-                        cv::Point(10, 90),
-                        cv::FONT_HERSHEY_SIMPLEX, 0.5,
-                        cv::Scalar(200, 200, 200), 1);
+            current_params = mapper.mapToMusic(current_emotion);
 
             // 自动播放音乐 (每5秒，图片模式立即播放)
             if (music_enabled) {
                 auto time_since_music = std::chrono::duration_cast<std::chrono::seconds>(
                     now - last_music_time).count();
                 if (is_image_mode || time_since_music >= 5) {
-                    auto notes = generator.generate(params);
+                    auto notes = generator.generate(current_params);
                     player.play(notes);
                     last_music_time = now;
                     std::cout << "[播放] " << emotionToString(current_emotion)
-                              << " -> " << params.key << " " << params.scale
-                              << " " << params.tempo << "BPM" << std::endl;
+                              << " -> " << current_params.key << " " << current_params.scale
+                              << " " << current_params.tempo << "BPM" << std::endl;
                 }
             }
-        } else {
-            cv::putText(frame, "No face detected",
-                        cv::Point(10, 60),
-                        cv::FONT_HERSHEY_SIMPLEX, 0.7,
-                        cv::Scalar(0, 0, 255), 2);
         }
 
-        // 显示 FPS + 播放状态
-        std::string status_text = "FPS: " + std::to_string(static_cast<int>(fps));
-        if (player.isPlaying()) {
-            status_text += "  [Playing]";
-        }
-        cv::putText(frame, status_text,
-                    cv::Point(10, 30),
-                    cv::FONT_HERSHEY_SIMPLEX, 0.7,
-                    cv::Scalar(0, 255, 0), 2);
+        // ---- 绘制 UI overlay ----
+        renderer.render(frame, fps, current_emotion,
+                        recognizer.getConfidences(), current_params,
+                        player.isPlaying(), music_enabled,
+                        face_detected, total_frames);
 
         cv::imshow("Emotion Music Generator", frame);
 
@@ -232,8 +197,7 @@ int main(int argc, char* argv[]) {
         if (key == 27) break;
 
         if (key == ' ') {
-            auto params = mapper.mapToMusic(current_emotion);
-            auto notes = generator.generate(params);
+            auto notes = generator.generate(current_params);
             player.play(notes);
             std::cout << "[手动播放] " << emotionToString(current_emotion) << std::endl;
         }

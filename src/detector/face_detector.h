@@ -28,7 +28,8 @@ public:
     std::vector<cv::Point> getLandmarks(const cv::Mat& frame, const FaceRect& face);
 
     // 在画面上绘制结果
-    void drawFace(cv::Mat& frame, const FaceRect& face);
+    void drawFace(cv::Mat& frame, const FaceRect& face,
+                  const cv::Scalar& color = cv::Scalar(0, 255, 0));
     void drawLandmarks(cv::Mat& frame, const std::vector<cv::Point>& landmarks);
 
 private:
