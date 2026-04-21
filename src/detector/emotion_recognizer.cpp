@@ -78,6 +78,11 @@ Emotion EmotionRecognizer::recognizeFromImage(const cv::Mat& frame, const FaceRe
 
     cv::Mat face_crop = frame(roi);
 
+    // 诊断：保存裁剪的人脸图片
+    cv::imwrite("/tmp/face_crop_raw.png", face_crop);
+    std::cout << "[DEBUG] face crop saved: /tmp/face_crop_raw.png ("
+              << face_crop.cols << "x" << face_crop.rows << ")" << std::endl;
+
     // 2. 预处理：灰度 → 缩放到 64x64（FERPlus 输入尺寸）
     cv::Mat gray;
     if (face_crop.channels() == 3) {
@@ -88,6 +93,9 @@ Emotion EmotionRecognizer::recognizeFromImage(const cv::Mat& frame, const FaceRe
 
     cv::Mat resized;
     cv::resize(gray, resized, cv::Size(64, 64));
+
+    // 诊断：保存预处理后的 64x64 灰度图
+    cv::imwrite("/tmp/face_crop_64gray.png", resized);
 
     // 3. 构造 blob: [1, 1, 64, 64]，归一化到 [0, 1]
     cv::Mat blob = cv::dnn::blobFromImage(resized, 1.0 / 255.0, cv::Size(64, 64));
