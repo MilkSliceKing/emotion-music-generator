@@ -450,22 +450,98 @@ git config --global http.proxy http://10.38.70.118:7897
 
 **用户**：帮我更新对话日志和devlog
 
-**AI**：正在更新两个文件，记录本次会话的完整内容。
+**AI**：更新两个文件，记录 FERPlus→HSEmotion 模型替换过程。
 
 ---
 
-## 总结（更新版）
+### Q32: VM 上 onnxruntime 安装
+
+**AI** 提供分步安装指令。用户遇到 `happy.jpg` 为空文件（0 字节），改用其他测试图片。
+
+---
+
+### Q33: OpenCV 4.5.4 不兼容 HSEmotion 模型
+
+**VM 错误**：
+```
+Node [Identity] parse error: (-215:Assertion failed) inputs.size()
+```
+
+**原因**：OpenCV 4.5.4 的 DNN 模块不支持 EfficientNet 使用的 `Identity` 节点。
+
+**用户选择**：换 onnxruntime C++ 库。
+
+**AI 操作**：
+1. 安装 onnxruntime v1.17.1（~30MB 共享库）
+2. 重写 `emotion_recognizer.h/cpp`：`cv::dnn::Net` → `Ort::Env`/`Ort::Session`
+3. 修改 `CMakeLists.txt` 添加 onnxruntime 查找和链接
+4. 预处理改用 OpenCV split 通道逐个归一化，构造 NCHW tensor
+
+**VM 编译通过，测试结果**：
+```
+face.jpg  → Neutral
+test3.jpg → Happy   ✓
+test5.jpg → Angry   ✓
+test8.jpg → Happy   ✓
+test9.jpg → Angry   ✓
+```
+
+**用户反馈**：识别准确了！
+
+---
+
+### Q34: 合并 dev/opencv-dnn 到 main
+
+**AI 操作**：在 VM 上 `git checkout main && git merge dev/opencv-dnn`（Fast-forward）。
+
+VM push 失败（GitHub 不支持密码认证），AI 在 Windows 端完成合并并 push。
+
+---
+
+### Q35: UI 优化
+
+**用户**：没事 现在优化一下ui吧 给我方案
+
+**AI 方案设计**：
+
+布局（640x480 画布分 5 个区域）：
+- **顶部状态栏**：FPS + 播放指示器 + AUTO 开关 + 情绪标签（动态颜色）
+- **主画面**：人脸四角装饰线 + 浅蓝关键点
+- **左下置信度面板**：7 条彩色条形图 + 百分比 + 白色边框高亮
+- **右下音乐面板**：Key/Tempo/Velocity + 8 根均衡器动画条
+- **底部提示栏**：居中操作提示
+
+技术实现：
+- 半透明面板用 `cv::addWeighted` 实现
+- 新增 `src/ui/overlay_renderer.h/.cpp`，封装所有 UI 绘制
+- `main.cpp` 中 ~80 行散落 UI 代码替换为 `renderer.render()` 一行调用
+- 人脸框从绿色矩形改为四角装饰线（颜色随情绪变化）
+- 关键点从红色 radius=2 改为浅蓝 radius=1
+
+**改动 6 个文件，新增 2 个文件，+339 -73 行**。
+
+**用户反馈**：很好
+
+---
+
+### Q36: 更新 devlog 和对话日志，保存记忆
+
+**用户**：我要睡觉了 devlog和ai对话记录更新一下github 然后你自己也记住今天的对话内容方便明天继续
+
+**AI**：更新文件、push GitHub、保存记忆。
+
+---
+
+## 总结（最终版）
 
 | 项目 | 详情 |
 |------|------|
-| 总开发时间 | 2026-04-12 ~ 04-21（约 12 小时） |
+| 总开发时间 | 2026-04-12 ~ 04-21（约 14 小时） |
 | AI 工具 | Claude Code (GLM 5.1) |
-| 遇到问题总数 | 31 个 |
-| 全部解决 | 是（除 VM 端 pull 待修复） |
-| 当前状态 | main 分支完整可用；dev/opencv-dnn 分支已换用 HSEmotion 模型，待 VM 测试 |
-| 最终方案 | dlib HOG 人脸检测 + DeepFace Python 桥接情绪识别 + paplay WAV 播放（初代）/ HSEmotion ONNX 纯 C++ 推理（二代开发中） |
+| 当前状态 | main 分支：纯 C++ 推理（onnxruntime + HSEmotion），UI 已优化 |
+| 最终方案 | dlib HOG 人脸检测 + HSEmotion ONNX (onnxruntime) 情绪识别 + paplay WAV 播放 |
 
-### 情绪识别方案演进史（完整版）
+### 情绪识别方案演进史（最终版）
 
 ```
 规则判断(68关键点阈值) → 不准
@@ -478,15 +554,17 @@ FER+ ONNX 模型 → 全输出 Neutral（4/13 和 4/21 两次确认）
     ↓
 DeepFace Python → angry 86% ✓
     ↓
-C++ + Python 桥接 (main 分支) → 初代方案，可用
+C++ + Python 桥接 → 初代方案，可用但有 Python 依赖
     ↓
-HSEmotion EfficientNet ONNX → 待 VM 测试（dev/opencv-dnn 分支）
+HSEmotion ONNX + OpenCV DNN → OpenCV 4.5.4 不兼容
+    ↓
+HSEmotion ONNX + onnxruntime → ✓ 纯 C++，识别准确！
 ```
 
-### 音频播放方案演进史
+### UI 演进史
 
 ```
-PortAudio 直接播放 → ALSA 通道不通 PulseAudio → 无声音
+朴素 putText 堆叠（左上角纯文字）
     ↓
-paplay/aplay 播放 WAV → 走 PulseAudio → ✓ 有声音！
+半透明面板 + 条形图 + 均衡器动画 + 四角人脸框（OverlayRenderer 封装）
 ```

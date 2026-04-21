@@ -534,10 +534,83 @@ HSEmotion ONNX + onnxruntime → ✓ 纯 C++，识别准确！
 
 ---
 
+## 日期：2026-04-21（续）
+
+### 任务：UI 优化 — 从朴素文本到专业界面
+
+#### 一、背景
+
+原有 UI 使用裸 `cv::putText` 在画面左上角堆叠文字，无背景面板、无颜色区分、无可视化图表。信息杂乱且在浅色背景上可读性差。
+
+#### 二、整体布局
+
+```
++--------------------------------------------------+
+| [HEADER BAR] y=0~55  半透明深色背景                 |
+| FPS | ● PLAYING | AUTO:ON |  Emotion: Happy      |
++--------------------------------------------------+
+|            主画面（人脸四角框 + 浅蓝关键点）          |
++---------------------------+------------------------+
+| [CONFIDENCE PANEL]        | [MUSIC PANEL]          |
+| 7条彩色条形图              | Key/Tempo + 均衡器动画  |
++---------------------------+------------------------+
+| [FOOTER BAR]  "ESC:Quit | SPACE:Play | M:Toggle"  |
++--------------------------------------------------+
+```
+
+#### 三、新增文件
+
+| 文件 | 说明 |
+|------|------|
+| `src/ui/overlay_renderer.h` | OverlayRenderer 类声明 |
+| `src/ui/overlay_renderer.cpp` | ~230 行，所有 UI 绘制逻辑封装 |
+
+#### 四、UI 元素详情
+
+**4.1 半透明面板** — 用 `cv::addWeighted` 实现，4 个区域各有独立 alpha 值
+
+**4.2 情绪颜色映射**（贯穿全局）：
+```
+Angry=红, Disgust=暗青, Fear=紫, Happy=黄, Sad=蓝, Surprised=橙, Neutral=灰白
+```
+
+**4.3 顶部状态栏**：FPS + 绿色/灰色播放指示器圆点 + AUTO:ON/OFF + 情绪标签（动态颜色）
+
+**4.4 置信度面板**（左下角 250x164）：7 条横向彩色条形图，每条包含缩写标签、彩色进度条、百分比；当前最高情绪加白色边框高亮
+
+**4.5 音乐面板**（右下角 242x164）：Key/Tempo/Velocity 参数 + 8 根竖条均衡器动画（播放时绿色正弦波跳动，空闲时灰色静态）
+
+**4.6 底部提示栏**：居中显示 "ESC:Quit | SPACE:Play | M:Auto Toggle"
+
+**4.7 人脸框**：绿色矩形改为四角装饰线（3px 粗），颜色随情绪变化
+
+**4.8 关键点**：红色 radius=2 改为浅蓝色 radius=1，减少视觉干扰
+
+#### 五、main.cpp 重构
+
+将原来 ~80 行散落的 `putText`/`rectangle` 代码全部删除，替换为：
+```cpp
+OverlayRenderer renderer;
+renderer.render(frame, fps, current_emotion, confidences, params,
+                player.isPlaying(), music_enabled, face_detected, total_frames);
+```
+
+#### 六、修改文件汇总
+
+| 文件 | 改动 |
+|------|------|
+| `src/ui/overlay_renderer.h` | 新建 |
+| `src/ui/overlay_renderer.cpp` | 新建，~230 行 |
+| `src/main.cpp` | 删除 ~80 行 UI 代码，替换为 renderer 调用 |
+| `src/detector/face_detector.h` | `drawFace` 增加颜色参数 |
+| `src/detector/face_detector.cpp` | 四角装饰线 + 浅蓝关键点 |
+| `CMakeLists.txt` | SOURCES 添加 overlay_renderer.cpp |
+
+---
+
 #### 下一步计划
 
 - [x] 在 VM 上测试 ONNX 推理准确率
-- [x] 对比 DeepFace vs FERPlus 的识别准确率
 - [x] 合并 dev/opencv-dnn 到 main
+- [x] UI 优化（半透明面板 + 条形图 + 均衡器动画）
 - [ ] 摄像头实时模式完整测试
-- [ ] 更新 devlog 和对话日志（记录 onnxruntime 切换）
