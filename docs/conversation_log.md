@@ -306,3 +306,187 @@ PortAudio 直接播放 → ALSA 通道不通 PulseAudio → 无声音
     ↓
 paplay/aplay 播放 WAV → 走 PulseAudio → ✓ 有声音！
 ```
+
+---
+
+## 会话日期：2026-04-21
+
+### 主题：二代 ONNX 推理版 VM 测试 — FERPlus 失败 → 换 HSEmotion 模型
+
+---
+
+### Q24: 你记得我的项目吗？
+
+**用户**：你记得我的项目吗 简述
+
+**AI**：从记忆文件中回顾了项目状态——情绪音乐生成器，C++ Linux 课程实验，main 分支（DeepFace）稳定可用，dev/opencv-dnn 分支（ONNX 推理）待 VM 测试。
+
+---
+
+### Q25: 接下来推荐做什么？
+
+**用户**：建议推荐什么
+
+**AI**：按优先级推荐：
+1. 测试 dev/opencv-dnn 分支 ONNX 推理
+2. DeepFace vs FERPlus 准确率对比
+3. 摄像头实时模式测试
+4. 音乐生成优化
+5. 简单 UI/可视化
+
+---
+
+### Q26: 开始在 VM 测试 ONNX 推理
+
+**用户**：好 按第一点开始
+
+**AI 操作**：
+1. 检查项目状态：Windows 上在 dev/opencv-dnn 分支，代码齐全
+2. 查看 ONNX 推理核心代码：emotion_recognizer.cpp（FERPlus 模型，64x64 灰度输入）
+3. 给出 VM 测试步骤：pull → 下载模型 → 编译 → 测试
+
+---
+
+### Q27: VM 测试结果 — 全 Neutral
+
+**用户**：在 VM 上运行成功，但识别结果是 Neutral
+
+```
+[情绪] 识别结果: Neutral
+[AudioPlayer] 合成 8 个音符, 5.33333 秒
+[AudioPlayer] 开始播放 (PID: 2716, 播放器: paplay)
+[播放] Neutral -> C major 90BPM
+```
+
+**AI**：编译运行通过，但需要验证准确率。建议批量测试所有 test_images。
+
+**用户批量测试结果**：
+```
+face.jpg → Neutral
+test3.jpg → Neutral
+test4.jpg → Neutral
+test5.jpg → Neutral
+test8.jpg → Neutral
+test9.jpg → Neutral
+happy.jpg → （无人脸输出，检测失败）
+test2/6/7.jpg → （检测失败）
+```
+
+**用户**：又全变成neutral了
+
+---
+
+### Q28: 诊断 — 查看原始 logits
+
+**AI 操作**：添加诊断输出到 emotion_recognizer.cpp，打印模型原始输出 shape 和值。
+
+**用户提供的诊断结果**：
+```
+[DEBUG] output shape: [8 x 1] (dims: 2)
+[DEBUG] raw output: Neutral=4.35 Happy=0.94 Surprise=-0.04 Sad=3.09 Anger=-0.20 Disgust=-3.03 Fear=-2.36 Contempt=-2.32
+```
+
+**AI 分析**：
+- 输出是 logits（非概率），值域 [-3, 4.35]
+- Neutral=4.35 远高于其他类
+- 不同类的值确实有区分，模型在工作
+- 但 FERPlus 模型系统性偏向 Neutral
+- 与 4/13 首次尝试 FER+ 时的问题完全一致
+
+**AI 建议**：进一步裁剪人脸图片诊断，或换更好的模型。
+
+---
+
+### Q29: 换更好的 ONNX 模型
+
+**用户**：选择"换更好的 ONNX 模型"
+
+**AI 调研**：
+1. 搜索 ONNX 情绪识别模型替代方案
+2. 找到 **HSEmotion (EmotiEffLib)** — HSE 大学开发，EfficientNet-B0 架构，ICML 2023 论文
+3. 阅读源码 `facial_emotions.py`，确认：
+   - 输入：224x224 RGB
+   - 预处理：ImageNet 归一化 (mean=[0.485,0.456,0.406], std=[0.229,0.224,0.225])
+   - 输出：8 类 logits
+   - 模型下载 URL：GitHub HSE-asavchenko 仓库
+
+**AI 代码改动**（3 个文件）：
+
+1. `download_models.sh` — 换模型 URL 和文件名
+2. `emotion_recognizer.cpp` — 完全重写：
+   - 新标签映射（HSEmotion 8 类顺序）
+   - 新预处理（224x224 RGB + ImageNet mean/std）
+   - 统一输出解析（兼容不同 shape）
+   - 添加 softmax 转换
+3. `main.cpp` — 换模型路径
+
+---
+
+### Q30: Git push SSL 问题
+
+**Windows 端**：
+```
+git push → schannel: failed to receive handshake, SSL/TLS connection failed
+```
+
+**解决方案**：临时绕过代理推送
+```bash
+git -c http.proxy="" -c https.proxy="" push origin dev/opencv-dnn
+```
+
+**VM 端**：
+```
+git pull → gnutls_handshake() failed: The TLS connection was non-properly terminated
+```
+
+**解决方案**：重新配置 VM 代理
+```bash
+git config --global http.proxy http://10.38.70.118:7897
+```
+
+---
+
+### Q31: 帮我更新对话日志和 devlog
+
+**用户**：帮我更新对话日志和devlog
+
+**AI**：正在更新两个文件，记录本次会话的完整内容。
+
+---
+
+## 总结（更新版）
+
+| 项目 | 详情 |
+|------|------|
+| 总开发时间 | 2026-04-12 ~ 04-21（约 12 小时） |
+| AI 工具 | Claude Code (GLM 5.1) |
+| 遇到问题总数 | 31 个 |
+| 全部解决 | 是（除 VM 端 pull 待修复） |
+| 当前状态 | main 分支完整可用；dev/opencv-dnn 分支已换用 HSEmotion 模型，待 VM 测试 |
+| 最终方案 | dlib HOG 人脸检测 + DeepFace Python 桥接情绪识别 + paplay WAV 播放（初代）/ HSEmotion ONNX 纯 C++ 推理（二代开发中） |
+
+### 情绪识别方案演进史（完整版）
+
+```
+规则判断(68关键点阈值) → 不准
+    ↓
+FER+ ONNX 模型 → 全输出 Neutral（4/13 和 4/21 两次确认）
+    ↓
+排查 4 种归一化 → 都不行，模型固有偏置
+    ↓
+换 Caffe FER 模型 → 下载不到
+    ↓
+DeepFace Python → angry 86% ✓
+    ↓
+C++ + Python 桥接 (main 分支) → 初代方案，可用
+    ↓
+HSEmotion EfficientNet ONNX → 待 VM 测试（dev/opencv-dnn 分支）
+```
+
+### 音频播放方案演进史
+
+```
+PortAudio 直接播放 → ALSA 通道不通 PulseAudio → 无声音
+    ↓
+paplay/aplay 播放 WAV → 走 PulseAudio → ✓ 有声音！
+```

@@ -2,11 +2,24 @@
 #include "face_detector.h"
 #include <algorithm>
 #include <iostream>
-#include <fstream>
-#include <cstdlib>
-#include <cstring>
-#include <sstream>
-#include <sys/wait.h>
+#include <numeric>
+
+// HSEmotion (EfficientNet-B0) 8 类标签
+static const std::vector<std::string> MODEL_LABELS = {
+    "Anger", "Contempt", "Disgust", "Fear", "Happiness", "Neutral", "Sadness", "Surprise"
+};
+
+// 映射 HSEmotion → 项目内部 Emotion 枚举（Contempt 归入 Neutral）
+static const Emotion MODEL_TO_EMOTION[] = {
+    Emotion::ANGRY,      // 0: Anger
+    Emotion::NEUTRAL,    // 1: Contempt → Neutral
+    Emotion::DISGUST,    // 2: Disgust
+    Emotion::FEAR,       // 3: Fear
+    Emotion::HAPPY,      // 4: Happiness
+    Emotion::NEUTRAL,    // 5: Neutral
+    Emotion::SAD,        // 6: Sadness
+    Emotion::SURPRISED   // 7: Surprise
+};
 
 const std::vector<std::string> EmotionRecognizer::EMOTION_LABELS = {
     "Angry", "Disgust", "Fear", "Happy", "Sad", "Surprise", "Neutral"
@@ -20,137 +33,33 @@ std::string emotionToString(Emotion e) {
     return "Unknown";
 }
 
-// ---- daemon 子进程管理 ----
-
-bool EmotionRecognizer::startDaemon() {
-    int to_child[2];    // parent writes, child reads
-    int from_child[2];  // child writes, parent reads
-
-    if (pipe(to_child) == -1 || pipe(from_child) == -1) {
-        std::cerr << "[EmotionRecognizer] pipe() 失败" << std::endl;
-        return false;
-    }
-
-    pid_t pid = fork();
-    if (pid == -1) {
-        std::cerr << "[EmotionRecognizer] fork() 失败" << std::endl;
-        close(to_child[0]); close(to_child[1]);
-        close(from_child[0]); close(from_child[1]);
-        return false;
-    }
-
-    if (pid == 0) {
-        // ---- 子进程 ----
-        close(to_child[1]);     // 关闭写端
-        close(from_child[0]);   // 关闭读端
-
-        // 重定向 stdin → to_child[0]
-        dup2(to_child[0], STDIN_FILENO);
-        close(to_child[0]);
-
-        // 重定向 stdout → from_child[1]
-        dup2(from_child[1], STDOUT_FILENO);
-        close(from_child[1]);
-
-        // 重定向 stderr → /dev/null
-        FILE* devnull = fopen("/dev/null", "w");
-        if (devnull) {
-            dup2(fileno(devnull), STDERR_FILENO);
-            fclose(devnull);
-        }
-
-        // exec Python daemon（无参数 = daemon 模式）
-        execlp("python3", "python3", script_path_.c_str(), nullptr);
-
-        // 如果 exec 失败
-        _exit(127);
-    }
-
-    // ---- 父进程 ----
-    close(to_child[0]);     // 关闭读端
-    close(from_child[1]);   // 关闭写端
-
-    pipe_to_child_ = to_child[1];
-    pipe_from_child_ = from_child[0];
-    daemon_pid_ = pid;
-
-    // 等待子进程输出 "READY"
-    char buf[256];
-    std::string ready;
-    while (true) {
-        ssize_t n = read(pipe_from_child_, buf, sizeof(buf) - 1);
-        if (n <= 0) break;
-        buf[n] = '\0';
-        ready += buf;
-        if (ready.find("READY") != std::string::npos) break;
-    }
-
-    if (ready.find("READY") == std::string::npos) {
-        std::cerr << "[EmotionRecognizer] Python daemon 未能就绪" << std::endl;
-        stopDaemon();
-        return false;
-    }
-
-    std::cout << "[EmotionRecognizer] Python daemon 已启动 (PID=" << pid << ")" << std::endl;
-    return true;
+EmotionRecognizer::EmotionRecognizer() : env_(ORT_LOGGING_LEVEL_WARNING, "emotion") {
+    session_opts_.SetIntraOpNumThreads(4);
+    session_opts_.SetGraphOptimizationLevel(GraphOptimizationLevel::ORT_ENABLE_ALL);
 }
 
-void EmotionRecognizer::stopDaemon() {
-    if (daemon_pid_ > 0) {
-        // 发送 EXIT 命令
-        if (pipe_to_child_ >= 0) {
-            const char* cmd = "EXIT\n";
-            write(pipe_to_child_, cmd, strlen(cmd));
-            close(pipe_to_child_);
-            pipe_to_child_ = -1;
-        }
-        if (pipe_from_child_ >= 0) {
-            close(pipe_from_child_);
-            pipe_from_child_ = -1;
-        }
-        // 等待子进程退出（最多 2 秒）
-        int status;
-        pid_t ret = waitpid(daemon_pid_, &status, WNOHANG);
-        if (ret == 0) {
-            // 子进程还在运行，给一点时间
-            usleep(100000); // 100ms
-            waitpid(daemon_pid_, &status, WNOHANG);
-        }
-        std::cout << "[EmotionRecognizer] Python daemon 已停止" << std::endl;
-        daemon_pid_ = -1;
-    }
-}
-
-EmotionRecognizer::~EmotionRecognizer() {
-    stopDaemon();
-}
-
-// ---- 主接口 ----
-
-bool EmotionRecognizer::loadModel(const std::string& script_path) {
-    script_path_ = script_path;
-
-    // 启动 Python daemon 子进程
-    if (startDaemon()) {
+bool EmotionRecognizer::loadModel(const std::string& model_path) {
+    try {
+        session_ = std::make_unique<Ort::Session>(env_, model_path.c_str(), session_opts_);
         initialized_ = true;
+        std::cout << "[EmotionRecognizer] onnxruntime 模型加载成功" << std::endl;
         return true;
+    } catch (const Ort::Exception& e) {
+        std::cerr << "[EmotionRecognizer] 模型加载失败: " << e.what() << std::endl;
+        return false;
     }
-
-    std::cerr << "[EmotionRecognizer] daemon 启动失败，回退到单次调用模式" << std::endl;
-    initialized_ = true;  // 仍标记为已初始化，回退用 popen
-    return true;
 }
 
 Emotion EmotionRecognizer::parseEmotion(const std::string& label) {
     std::string lower = label;
     std::transform(lower.begin(), lower.end(), lower.begin(), ::tolower);
 
-    if (lower == "angry")     return Emotion::ANGRY;
-    if (lower == "disgust")   return Emotion::DISGUST;
-    if (lower == "fear")      return Emotion::FEAR;
-    if (lower == "happy")     return Emotion::HAPPY;
-    if (lower == "sad")       return Emotion::SAD;
-    if (lower == "surprise")  return Emotion::SURPRISED;
+    if (lower == "angry" || lower == "anger")  return Emotion::ANGRY;
+    if (lower == "disgust")                    return Emotion::DISGUST;
+    if (lower == "fear")                       return Emotion::FEAR;
+    if (lower == "happy" || lower == "happiness") return Emotion::HAPPY;
+    if (lower == "sad" || lower == "sadness")  return Emotion::SAD;
+    if (lower == "surprise" || lower == "surprised") return Emotion::SURPRISED;
     return Emotion::NEUTRAL;
 }
 
@@ -172,79 +81,66 @@ Emotion EmotionRecognizer::recognizeFromImage(const cv::Mat& frame, const FaceRe
 
     cv::Mat face_crop = frame(roi);
 
-    // 2. 保存为临时文件
-    std::string temp_path = "/tmp/emo_face_" + std::to_string(temp_counter_++) + ".jpg";
-    cv::imwrite(temp_path, face_crop);
+    // 2. 预处理：缩放到 224x224 BGR → ImageNet 归一化 → NCHW
+    cv::Mat resized;
+    cv::resize(face_crop, resized, cv::Size(224, 224));
 
-    // 3. 通过管道发送路径给 daemon
-    std::string result;
+    resized.convertTo(resized, CV_32F, 1.0 / 255.0);
 
-    if (daemon_pid_ > 0 && pipe_to_child_ >= 0) {
-        // ---- daemon 模式 ----
-        std::string cmd = temp_path + "\n";
-        if (write(pipe_to_child_, cmd.c_str(), cmd.size()) <= 0) {
-            std::cerr << "[EmotionRecognizer] 写管道失败" << std::endl;
-            std::remove(temp_path.c_str());
-            return Emotion::NEUTRAL;
+    // ImageNet 归一化 (BGR 通道顺序，与 HSEmotion Python 代码一致)
+    static const float mean[] = {0.485f, 0.456f, 0.406f};
+    static const float std_v[] = {0.229f, 0.224f, 0.225f};
+    std::vector<cv::Mat> channels(3);
+    cv::split(resized, channels);
+    for (int c = 0; c < 3; ++c) {
+        channels[c] = (channels[c] - mean[c]) / std_v[c];
+    }
+
+    // 3. 构造输入 tensor [1, 3, 224, 224] (NCHW)
+    std::vector<float> input_data(3 * 224 * 224);
+    for (int c = 0; c < 3; ++c) {
+        std::memcpy(input_data.data() + c * 224 * 224,
+                    channels[c].data, 224 * 224 * sizeof(float));
+    }
+
+    std::array<int64_t, 4> input_shape = {1, 3, 224, 224};
+    Ort::MemoryInfo mem_info = Ort::MemoryInfo::CreateCpu(OrtArenaAllocator, OrtMemTypeDefault);
+    Ort::Value input_tensor = Ort::Value::CreateTensor<float>(
+        mem_info, input_data.data(), input_data.size(), input_shape.data(), input_shape.size());
+
+    // 4. 推理
+    const char* input_names[] = {"input"};
+    const char* output_names[] = {"output"};
+    auto output_tensors = session_->Run(
+        Ort::RunOptions{nullptr}, input_names, &input_tensor, 1, output_names, 1);
+
+    // 5. 解析输出（8 类 logits）
+    float* output_data = output_tensors[0].GetTensorMutableData<float>();
+    auto output_info = output_tensors[0].GetTensorTypeAndShapeInfo();
+    size_t num_classes = output_info.GetElementCount();
+
+    // 6. Softmax → 概率
+    float max_logit = *std::max_element(output_data, output_data + num_classes);
+    std::vector<float> probs(num_classes);
+    float sum_exp = 0.0f;
+    for (size_t i = 0; i < num_classes; ++i) {
+        probs[i] = std::exp(output_data[i] - max_logit);
+        sum_exp += probs[i];
+    }
+    for (auto& p : probs) p /= sum_exp;
+
+    // 7. 累加到 7 类置信度
+    confidences_.assign(7, 0.0f);
+    int max_idx = 0;
+    float max_prob = 0.0f;
+    for (size_t i = 0; i < num_classes && i < 8; ++i) {
+        int our_idx = static_cast<int>(MODEL_TO_EMOTION[i]);
+        confidences_[our_idx] += probs[i];
+        if (probs[i] > max_prob) {
+            max_prob = probs[i];
+            max_idx = static_cast<int>(i);
         }
-
-        // 读取一行结果
-        char buf[512];
-        while (true) {
-            ssize_t n = read(pipe_from_child_, buf, sizeof(buf) - 1);
-            if (n <= 0) break;
-            buf[n] = '\0';
-            result += buf;
-            if (result.find('\n') != std::string::npos) break;
-        }
-    } else {
-        // ---- 回退：单次 popen 模式 ----
-        std::string cmd = "python3 " + script_path_ + " " + temp_path + " 2>/dev/null";
-        FILE* pipe = popen(cmd.c_str(), "r");
-        if (!pipe) {
-            std::cerr << "[EmotionRecognizer] 无法执行 Python 脚本" << std::endl;
-            std::remove(temp_path.c_str());
-            return Emotion::NEUTRAL;
-        }
-        char buf[512];
-        while (fgets(buf, sizeof(buf), pipe)) {
-            result += buf;
-        }
-        pclose(pipe);
     }
 
-    // 删除临时文件
-    std::remove(temp_path.c_str());
-
-    // 4. 解析输出
-    if (result.empty() || result.substr(0, 5) == "ERROR") {
-        return Emotion::NEUTRAL;
-    }
-
-    // 去掉换行
-    if (!result.empty() && result.back() == '\n') result.pop_back();
-
-    // daemon 模式输出: OK,dominant,angry,disgust,fear,happy,sad,surprise,neutral
-    // 回退模式输出: dominant,angry,disgust,fear,happy,sad,surprise,neutral
-    if (result.substr(0, 3) == "OK,") {
-        result = result.substr(3);  // 去掉 "OK," 前缀
-    }
-
-    std::stringstream ss(result);
-    std::string token;
-    std::vector<std::string> parts;
-    while (std::getline(ss, token, ',')) {
-        parts.push_back(token);
-    }
-
-    if (parts.size() < 8) return Emotion::NEUTRAL;
-
-    // parts[0] = dominant emotion label
-    // parts[1-7] = angry,disgust,fear,happy,sad,surprise,neutral 置信度
-    confidences_.resize(7);
-    for (int i = 0; i < 7; ++i) {
-        confidences_[i] = std::stof(parts[i + 1]) / 100.0f;
-    }
-
-    return parseEmotion(parts[0]);
+    return MODEL_TO_EMOTION[max_idx];
 }

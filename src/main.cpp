@@ -82,9 +82,9 @@ int main(int argc, char* argv[]) {
         return -1;
     }
 
-    // ---- 初始化情绪识别 (DeepFace Python 桥接) ----
+    // ---- 初始化情绪识别 (OpenCV DNN, ONNX) ----
     EmotionRecognizer recognizer;
-    if (!recognizer.loadModel("predict_emotion.py")) {
+    if (!recognizer.loadModel("models/emotion_detector/enet_b0_8_best_afew.onnx")) {
         std::cerr << "[错误] 情绪识别模型加载失败" << std::endl;
         return -1;
     }

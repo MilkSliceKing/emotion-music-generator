@@ -4,8 +4,7 @@
 #include <vector>
 #include <string>
 #include <opencv2/opencv.hpp>
-#include <unistd.h>
-#include <sys/types.h>
+#include <onnxruntime_cxx_api.h>
 
 // 情绪类型枚举
 enum class Emotion {
@@ -22,37 +21,26 @@ std::string emotionToString(Emotion e);
 
 class EmotionRecognizer {
 public:
-    EmotionRecognizer() = default;
-    ~EmotionRecognizer();
+    EmotionRecognizer();
+    ~EmotionRecognizer() = default;
 
-    // 禁止拷贝
-    EmotionRecognizer(const EmotionRecognizer&) = delete;
-    EmotionRecognizer& operator=(const EmotionRecognizer&) = delete;
+    // 加载 ONNX 模型（使用 onnxruntime）
+    bool loadModel(const std::string& model_path);
 
-    // 初始化（启动 Python daemon 子进程）
-    bool loadModel(const std::string& script_path);
-
-    // 基于人脸图像识别情绪（写临时文件 → 通过管道发送路径 → 读取结果）
+    // 基于人脸图像识别情绪（裁剪→缩放→归一化→推理）
     Emotion recognizeFromImage(const cv::Mat& frame, const struct FaceRect& face);
 
-    // 获取各情绪的置信度
+    // 获取各情绪的置信度（softmax 后的概率）
     const std::vector<float>& getConfidences() const { return confidences_; }
 
     static const std::vector<std::string> EMOTION_LABELS;
 
 private:
-    std::string script_path_;
+    Ort::Env env_;
+    Ort::SessionOptions session_opts_;
+    std::unique_ptr<Ort::Session> session_;
     bool initialized_ = false;
     std::vector<float> confidences_;
-    int temp_counter_ = 0;
-
-    // daemon 子进程相关
-    pid_t daemon_pid_ = -1;
-    int pipe_to_child_ = -1;    // 父进程写，子进程读
-    int pipe_from_child_ = -1;  // 子进程写，父进程读
-
-    bool startDaemon();
-    void stopDaemon();
 
     Emotion parseEmotion(const std::string& label);
 };
