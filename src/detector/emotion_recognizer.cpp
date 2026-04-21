@@ -97,6 +97,14 @@ Emotion EmotionRecognizer::recognizeFromImage(const cv::Mat& frame, const FaceRe
     cv::Mat probs = net_.forward();
 
     // 5. 解析 FERPlus 输出（8 类概率）→ 映射到 7 类
+    // 诊断：打印原始输出 shape 和概率
+    std::cout << "[DEBUG] output shape: " << probs.size() << " (dims: " << probs.dims << ")" << std::endl;
+    std::cout << "[DEBUG] raw output:";
+    for (int i = 0; i < probs.cols; ++i) {
+        std::cout << " " << FERPLUS_LABELS[i] << "=" << probs.at<float>(0, i);
+    }
+    std::cout << std::endl;
+
     // 将 FERPlus 的 8 类概率累加到我们的 7 类中
     confidences_.assign(7, 0.0f);
     int ferplus_max = 0;
