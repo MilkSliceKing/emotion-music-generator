@@ -2,6 +2,7 @@
 #include "face_detector.h"
 #include <algorithm>
 #include <iostream>
+#include <numeric>
 
 // HSEmotion (EfficientNet-B0) 8 类标签
 static const std::vector<std::string> MODEL_LABELS = {
@@ -32,19 +33,21 @@ std::string emotionToString(Emotion e) {
     return "Unknown";
 }
 
+EmotionRecognizer::EmotionRecognizer() : env_(ORT_LOGGING_LEVEL_WARNING, "emotion") {
+    session_opts_.SetIntraOpNumThreads(4);
+    session_opts_.SetGraphOptimizationLevel(GraphOptimizationLevel::ORT_ENABLE_ALL);
+}
+
 bool EmotionRecognizer::loadModel(const std::string& model_path) {
-    net_ = cv::dnn::readNetFromONNX(model_path);
-    if (net_.empty()) {
-        std::cerr << "[EmotionRecognizer] ONNX 模型加载失败: " << model_path << std::endl;
+    try {
+        session_ = std::make_unique<Ort::Session>(env_, model_path.c_str(), session_opts_);
+        initialized_ = true;
+        std::cout << "[EmotionRecognizer] onnxruntime 模型加载成功" << std::endl;
+        return true;
+    } catch (const Ort::Exception& e) {
+        std::cerr << "[EmotionRecognizer] 模型加载失败: " << e.what() << std::endl;
         return false;
     }
-
-    net_.setPreferableBackend(cv::dnn::DNN_BACKEND_OPENCV);
-    net_.setPreferableTarget(cv::dnn::DNN_TARGET_CPU);
-
-    initialized_ = true;
-    std::cout << "[EmotionRecognizer] HSEmotion ONNX 模型加载成功" << std::endl;
-    return true;
 }
 
 Emotion EmotionRecognizer::parseEmotion(const std::string& label) {
@@ -78,60 +81,72 @@ Emotion EmotionRecognizer::recognizeFromImage(const cv::Mat& frame, const FaceRe
 
     cv::Mat face_crop = frame(roi);
 
-    // 2. 预处理：缩放到 224x224，保持 BGR（HSEmotion 输入尺寸）
+    // 2. 预处理：缩放到 224x224 BGR → ImageNet 归一化 → NCHW
     cv::Mat resized;
     cv::resize(face_crop, resized, cv::Size(224, 224));
 
-    // 3. 构造 blob: [1, 3, 224, 224]，ImageNet 归一化
-    //    blobFromImage(output) = scale * (input - mean)
-    //    先做: (pixel/255 - [0.485,0.456,0.406])
-    //    再除以 std=[0.229,0.224,0.225]
-    cv::Scalar mean_pixel(0.485 * 255, 0.456 * 255, 0.406 * 255);
-    cv::Mat blob = cv::dnn::blobFromImage(resized, 1.0 / 255.0, cv::Size(224, 224), mean_pixel, false);
+    resized.convertTo(resized, CV_32F, 1.0 / 255.0);
 
-    // 手动除以 std (blobFromImage 不支持 per-channel std)
-    static const float std_vals[] = {0.229f, 0.224f, 0.225f};
+    // ImageNet 归一化 (BGR 通道顺序，与 HSEmotion Python 代码一致)
+    static const float mean[] = {0.485f, 0.456f, 0.406f};
+    static const float std_v[] = {0.229f, 0.224f, 0.225f};
+    std::vector<cv::Mat> channels(3);
+    cv::split(resized, channels);
     for (int c = 0; c < 3; ++c) {
-        cv::Mat channel(224, 224, CV_32F, blob.ptr<float>(0, c));
-        channel /= std_vals[c];
+        channels[c] = (channels[c] - mean[c]) / std_v[c];
     }
 
-    // 4. 前向推理
-    net_.setInput(blob);
-    cv::Mat output = net_.forward();
+    // 3. 构造输入 tensor [1, 3, 224, 224] (NCHW)
+    std::vector<float> input_data(3 * 224 * 224);
+    for (int c = 0; c < 3; ++c) {
+        std::memcpy(input_data.data() + c * 224 * 224,
+                    channels[c].data, 224 * 224 * sizeof(float));
+    }
 
-    // 5. 解析输出（8 类 logits）→ argmax → 映射到 7 类
-    // 输出 shape 可能是 [1,8] 或 [8,1]，统一处理
-    int num_classes = output.total();
-    float* data = reinterpret_cast<float*>(output.data);
+    std::array<int64_t, 4> input_shape = {1, 3, 224, 224};
+    Ort::MemoryInfo mem_info = Ort::MemoryInfo::CreateCpu(OrtArenaAllocator, OrtMemTypeDefault);
+    Ort::Value input_tensor = Ort::Value::CreateTensor<float>(
+        mem_info, input_data.data(), input_data.size(), input_shape.data(), input_shape.size());
 
+    // 4. 推理
+    const char* input_names[] = {"input"};
+    const char* output_names[] = {"output"};
+    auto output_tensors = session_->Run(
+        Ort::RunOptions{nullptr}, input_names, &input_tensor, 1, output_names, 1);
+
+    // 5. 解析输出（8 类 logits）
+    float* output_data = output_tensors[0].GetTensorMutableData<float>();
+    auto output_info = output_tensors[0].GetTensorTypeAndShapeInfo();
+    size_t num_classes = output_info.GetElementCount();
+
+    // 打印原始 logits 用于调试
     std::cout << "[DEBUG] raw output:";
-    for (int i = 0; i < num_classes && i < 8; ++i) {
-        std::cout << " " << MODEL_LABELS[i] << "=" << data[i];
+    for (size_t i = 0; i < num_classes && i < 8; ++i) {
+        std::cout << " " << MODEL_LABELS[i] << "=" << output_data[i];
     }
     std::cout << std::endl;
 
-    int max_idx = 0;
-    float max_val = data[0];
-    for (int i = 1; i < num_classes && i < 8; ++i) {
-        if (data[i] > max_val) {
-            max_val = data[i];
-            max_idx = i;
-        }
-    }
-
-    // 累加置信度（softmax 后的概率）
-    // 先做 softmax 得到概率
+    // 6. Softmax → 概率
+    float max_logit = *std::max_element(output_data, output_data + num_classes);
+    std::vector<float> probs(num_classes);
     float sum_exp = 0.0f;
-    for (int i = 0; i < num_classes && i < 8; ++i) {
-        sum_exp += std::exp(data[i]);
+    for (size_t i = 0; i < num_classes; ++i) {
+        probs[i] = std::exp(output_data[i] - max_logit);
+        sum_exp += probs[i];
     }
+    for (auto& p : probs) p /= sum_exp;
 
+    // 7. 累加到 7 类置信度
     confidences_.assign(7, 0.0f);
-    for (int i = 0; i < num_classes && i < 8; ++i) {
-        float prob = std::exp(data[i]) / sum_exp;
+    int max_idx = 0;
+    float max_prob = 0.0f;
+    for (size_t i = 0; i < num_classes && i < 8; ++i) {
         int our_idx = static_cast<int>(MODEL_TO_EMOTION[i]);
-        confidences_[our_idx] += prob;
+        confidences_[our_idx] += probs[i];
+        if (probs[i] > max_prob) {
+            max_prob = probs[i];
+            max_idx = static_cast<int>(i);
+        }
     }
 
     return MODEL_TO_EMOTION[max_idx];

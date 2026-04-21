@@ -20,6 +20,28 @@ if(NOT DLIB_INCLUDE_DIR OR NOT DLIB_LIBRARY)
 endif()
 message(STATUS "dlib: ${DLIB_LIBRARY}")
 
+# onnxruntime
+# 优先搜索系统安装路径，其次搜索 /usr/local 和 /opt
+find_library(ONNXRUNTIME_LIBRARY onnxruntime
+    HINTS /usr/local/lib /opt/onnxruntime/lib /usr/lib/x86_64-linux-gnu
+)
+find_path(ONNXRUNTIME_INCLUDE_DIR onnxruntime_cxx_api.h
+    HINTS /usr/local/include/onnxruntime /opt/onnxruntime/include /usr/include/onnxruntime
+)
+if(NOT ONNXRUNTIME_LIBRARY OR NOT ONNXRUNTIME_INCLUDE_DIR)
+    message(FATAL_ERROR
+        "onnxruntime 未找到。\n"
+        "安装方法:\n"
+        "  wget https://github.com/microsoft/onnxruntime/releases/download/v1.17.1/onnxruntime-linux-x64-1.17.1.tgz\n"
+        "  tar xzf onnxruntime-linux-x64-1.17.1.tgz\n"
+        "  sudo cp -r onnxruntime-linux-x64-1.17.1/include/* /usr/local/include/\n"
+        "  sudo cp -r onnxruntime-linux-x64-1.17.1/lib/* /usr/local/lib/\n"
+        "  sudo ldconfig"
+    )
+endif()
+message(STATUS "onnxruntime: ${ONNXRUNTIME_LIBRARY}")
+message(STATUS "onnxruntime include: ${ONNXRUNTIME_INCLUDE_DIR}")
+
 # ---------- 源文件 ----------
 
 set(SOURCES
@@ -37,6 +59,7 @@ target_include_directories(emotion_music_generator PRIVATE
     ${CMAKE_SOURCE_DIR}/src
     ${OpenCV_INCLUDE_DIRS}
     ${DLIB_INCLUDE_DIR}
+    ${ONNXRUNTIME_INCLUDE_DIR}
 )
 
 target_link_libraries(emotion_music_generator
@@ -44,6 +67,7 @@ target_link_libraries(emotion_music_generator
     ${DLIB_LIBRARY}
     ${BLAS_LIBRARIES}
     ${LAPACK_LIBRARIES}
+    ${ONNXRUNTIME_LIBRARY}
     pthread
 )
 

@@ -4,7 +4,7 @@
 #include <vector>
 #include <string>
 #include <opencv2/opencv.hpp>
-#include <opencv2/dnn.hpp>
+#include <onnxruntime_cxx_api.h>
 
 // 情绪类型枚举
 enum class Emotion {
@@ -21,22 +21,24 @@ std::string emotionToString(Emotion e);
 
 class EmotionRecognizer {
 public:
-    EmotionRecognizer() = default;
+    EmotionRecognizer();
     ~EmotionRecognizer() = default;
 
-    // 加载 OpenCV DNN 情绪模型（ONNX）
+    // 加载 ONNX 模型（使用 onnxruntime）
     bool loadModel(const std::string& model_path);
 
-    // 基于人脸图像识别情绪（裁剪→灰度→缩放→DNN推理）
+    // 基于人脸图像识别情绪（裁剪→缩放→归一化→推理）
     Emotion recognizeFromImage(const cv::Mat& frame, const struct FaceRect& face);
 
-    // 获取各情绪的置信度
+    // 获取各情绪的置信度（softmax 后的概率）
     const std::vector<float>& getConfidences() const { return confidences_; }
 
     static const std::vector<std::string> EMOTION_LABELS;
 
 private:
-    cv::dnn::Net net_;
+    Ort::Env env_;
+    Ort::SessionOptions session_opts_;
+    std::unique_ptr<Ort::Session> session_;
     bool initialized_ = false;
     std::vector<float> confidences_;
 
