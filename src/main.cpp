@@ -84,7 +84,7 @@ int main(int argc, char* argv[]) {
 
     // ---- 初始化情绪识别 (OpenCV DNN, ONNX) ----
     EmotionRecognizer recognizer;
-    if (!recognizer.loadModel("models/emotion_detector/emotion-ferplus-8.onnx")) {
+    if (!recognizer.loadModel("models/emotion_detector/enet_b0_8_best_afew.onnx")) {
         std::cerr << "[错误] 情绪识别模型加载失败" << std::endl;
         return -1;
     }

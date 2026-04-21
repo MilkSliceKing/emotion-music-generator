@@ -1,10 +1,10 @@
 #!/bin/bash
-# 下载情绪识别 ONNX 模型（FERPlus）
+# 下载情绪识别 ONNX 模型（HSEmotion / EfficientNet-B0）
 # 用法: bash download_models.sh
 
 MODEL_DIR="models/emotion_detector"
-MODEL_FILE="$MODEL_DIR/emotion-ferplus-8.onnx"
-MODEL_URL="https://huggingface.co/onnxmodelzoo/emotion-ferplus-8/resolve/main/emotion-ferplus-8.onnx"
+MODEL_FILE="$MODEL_DIR/enet_b0_8_best_afew.onnx"
+MODEL_URL="https://github.com/HSE-asavchenko/face-emotion-recognition/raw/main/models/affectnet_emotions/onnx/enet_b0_8_best_afew.onnx"
 
 mkdir -p "$MODEL_DIR"
 
@@ -13,7 +13,7 @@ if [ -f "$MODEL_FILE" ]; then
     exit 0
 fi
 
-echo "正在下载 FERPlus 情绪识别模型 (~34MB)..."
+echo "正在下载 HSEmotion 情绪识别模型 (~16MB)..."
 echo "URL: $MODEL_URL"
 
 if command -v wget &> /dev/null; then
