@@ -119,13 +119,6 @@ Emotion EmotionRecognizer::recognizeFromImage(const cv::Mat& frame, const FaceRe
     auto output_info = output_tensors[0].GetTensorTypeAndShapeInfo();
     size_t num_classes = output_info.GetElementCount();
 
-    // 打印原始 logits 用于调试
-    std::cout << "[DEBUG] raw output:";
-    for (size_t i = 0; i < num_classes && i < 8; ++i) {
-        std::cout << " " << MODEL_LABELS[i] << "=" << output_data[i];
-    }
-    std::cout << std::endl;
-
     // 6. Softmax → 概率
     float max_logit = *std::max_element(output_data, output_data + num_classes);
     std::vector<float> probs(num_classes);
