@@ -388,3 +388,137 @@ main (初代版本)                    dev/opencv-dnn (二代优化)
 - [ ] 对比 DeepFace vs FERPlus 的识别准确率
 - [ ] 摄像头实时模式完整测试
 - [ ] 合并 dev/opencv-dnn 到 main（测试通过后）
+
+---
+
+## 日期：2026-04-21
+
+### 任务：二代 ONNX 推理版 VM 测试 — FERPlus 失败 → 换 HSEmotion 模型
+
+#### 一、VM 测试 FERPlus ONNX 模型
+
+在 VM 上首次完整测试 `dev/opencv-dnn` 分支。程序编译运行均通过，人脸检测正常，但情绪识别结果不理想。
+
+**测试结果**：
+
+```bash
+# 单张测试
+./build/emotion_music_generator image test_images/test9.jpg
+# [情绪] 识别结果: Neutral
+
+# 批量测试所有 test_images
+for img in test_images/*.jpg; do
+    echo "=== $img ==="
+    ./build/emotion_music_generator image "$img" 2>&1 | grep "识别结果"
+done
+# 全部输出 Neutral（检测到人脸的图片）
+```
+
+**添加诊断输出**，查看模型原始 logits：
+
+```
+[DEBUG] output shape: [8 x 1] (dims: 2)
+[DEBUG] raw output: Neutral=4.35 Happy=0.94 Surprise=-0.04 Sad=3.09 Anger=-0.20 Disgust=-3.03 Fear=-2.36 Contempt=-2.32
+```
+
+**分析**：
+- 模型输出的是 logits（非概率），值域 [-3, 4.35]
+- Neutral 总是最高值（4.35），argmax 一定选它
+- 不同类的值确实有区分（不是全一样），说明模型在工作，但系统性地偏向 Neutral
+- 4/13 初次尝试 FER+ 时也是同样的"全 Neutral"问题，说明 **FERPlus 模型对 Neutral 有固有偏置**
+
+#### 二、决策：换用 HSEmotion 模型
+
+经调研，选定 **HSEmotion（EmotiEffLib）** 作为替代模型：
+
+| 对比项 | FERPlus (原模型) | HSEmotion enet_b0_8 (新模型) |
+|--------|-----------------|------------------------------|
+| 架构 | 简单 CNN | EfficientNet-B0（ImageNet 预训练 + VGGFace2 微调） |
+| 训练数据 | FERPlus | AffectNet（更高质量） |
+| 输入 | 64x64 灰度 | 224x224 RGB |
+| 归一化 | 1/255 | ImageNet mean/std |
+| 准确率 | ~55% (AffectNet) | ~61% (AffectNet 8类), AFEW 59.89% |
+| 模型大小 | 34MB | 16MB |
+| 标签顺序 | Neutral 首位 | Anger 首位 |
+
+**来源**：GitHub av-savchenko/face-emotion-recognition（HSE 大学 + Sber AI Lab），ICML 2023 论文。
+
+#### 三、代码改动
+
+**3.1 download_models.sh** — 换模型下载地址
+
+```diff
+- MODEL_FILE="$MODEL_DIR/emotion-ferplus-8.onnx"
+- MODEL_URL="https://huggingface.co/onnxmodelzoo/emotion-ferplus-8/resolve/main/emotion-ferplus-8.onnx"
++ MODEL_FILE="$MODEL_DIR/enet_b0_8_best_afew.onnx"
++ MODEL_URL="https://github.com/HSE-asavchenko/face-emotion-recognition/raw/main/models/affectnet_emotions/onnx/enet_b0_8_best_afew.onnx"
+```
+
+**3.2 emotion_recognizer.cpp** — 核心改动
+
+1. **标签映射**：FERPlus 8 类 → HSEmotion 8 类（顺序完全不同）
+   ```
+   HSEmotion: {0:Anger, 1:Contempt, 2:Disgust, 3:Fear, 4:Happiness, 5:Neutral, 6:Sadness, 7:Surprise}
+   ```
+
+2. **预处理**：64x64 灰度 1/255 → 224x224 RGB + ImageNet 归一化
+   ```cpp
+   // blobFromImage 做均值减法: output = (img/255 - mean)
+   cv::Scalar mean_pixel(0.485*255, 0.456*255, 0.406*255);
+   cv::Mat blob = cv::dnn::blobFromImage(resized, 1.0/255.0, cv::Size(224,224), mean_pixel, false);
+   // 手动除以 std（blobFromImage 不支持 per-channel std）
+   for (int c = 0; c < 3; ++c) {
+       cv::Mat channel(224, 224, CV_32F, blob.ptr<float>(0, c));
+       channel /= std_vals[c];  // {0.229, 0.224, 0.225}
+   }
+   ```
+
+3. **输出解析**：统一用 `float* data` 直接访问，兼容 [1,8] 和 [8,1] 两种 shape；添加 softmax 转换得到真实概率。
+
+**3.3 main.cpp** — 换模型路径
+
+```diff
+- recognizer.loadModel("models/emotion_detector/emotion-ferplus-8.onnx")
++ recognizer.loadModel("models/emotion_detector/enet_b0_8_best_afew.onnx")
+```
+
+#### 四、遇到的 Git/网络问题
+
+| # | 问题 | 解决方案 |
+|---|------|---------|
+| 1 | Windows git push SSL 握手失败 (`schannel: failed to receive handshake`) | `git -c http.proxy="" -c https.proxy="" push` 临时绕过代理 |
+| 2 | VM git pull TLS 失败 (`gnutls_handshake() failed`) | VM 代理失效，需重新配置 `git config --global http.proxy http://10.38.70.118:7897` |
+
+#### 五、当前状态
+
+- 代码已 push 到 `dev/opencv-dnn` 分支
+- VM 端因 TLS 问题暂未 pull 新代码
+- 待 VM 网络恢复后：pull → `bash download_models.sh` 下载新模型 → 编译 → 测试
+
+#### 六、情绪识别方案演进史（更新版）
+
+```
+规则判断(68关键点阈值) → 不准
+    ↓
+FER+ ONNX 模型 → 全输出 Neutral（4/13 和 4/21 两次确认）
+    ↓
+排查 4 种归一化 → 都不行，模型固有偏置
+    ↓
+换 Caffe FER 模型 → 下载不到
+    ↓
+DeepFace Python → angry 86% ✓
+    ↓
+C++ + Python 桥接 (main 分支) → 初代方案，可用
+    ↓
+HSEmotion EfficientNet ONNX → 待 VM 测试（dev/opencv-dnn 分支）
+```
+
+---
+
+#### 下一步计划
+
+- [ ] VM 修复代理后 pull 新代码
+- [ ] 下载 HSEmotion 模型并编译测试
+- [ ] 对比 DeepFace vs HSEmotion 识别准确率
+- [ ] 摄像头实时模式完整测试
+- [ ] 合并 dev/opencv-dnn 到 main（测试通过后）
