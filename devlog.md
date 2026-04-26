@@ -614,3 +614,91 @@ renderer.render(frame, fps, current_emotion, confidences, params,
 - [x] 合并 dev/opencv-dnn 到 main
 - [x] UI 优化（半透明面板 + 条形图 + 均衡器动画）
 - [ ] 摄像头实时模式完整测试
+
+---
+
+## 日期：2026-04-26
+
+### 任务：摄像头实时模式测试 + 音色优化
+
+#### 一、摄像头模式首次完整测试
+
+在 Ubuntu VM 上首次运行摄像头实时模式，逐一排查问题。
+
+**问题1：模型路径错误**
+
+```bash
+cd build && ./emotion_music_generator camera
+# [FaceDetector] 模型加载失败: Unable to open models/shape_predictor_68_face_landmarks.dat
+```
+
+原因：从 `build/` 目录运行，相对路径 `models/` 解析为 `build/models/`。
+
+解决方案：从项目根目录运行：
+```bash
+./build/emotion_music_generator camera
+```
+
+**问题2：VirtualBox 摄像头透传**
+
+VM 中 `ls /dev/video*` 找不到摄像头设备。
+
+解决方案：VirtualBox 菜单 → 设备 → 摄像头 → 选择主机摄像头。
+
+**问题3：Happy 表情被识别为 Sad**
+
+摄像头模式下微笑被错误识别为 Sad。
+
+**排查**：将 `SMOOTH_WINDOW` 从 5 改为 1（关闭平滑），确认是模型本身识别错误，不是平滑问题。
+
+**根因**：`emotion_recognizer.cpp` 预处理缺少 BGR→RGB 颜色转换。OpenCV 摄像头帧为 BGR 格式，但 HSEmotion 模型训练时使用 RGB 输入。通道顺序错误导致 Blue/Red 互换，模型输出严重偏移。
+
+**修复**：在 resize 后加一行：
+```cpp
+cv::cvtColor(resized, resized, cv::COLOR_BGR2RGB);
+```
+
+修复后 Happy/Angry/Neutral 均识别正确。
+
+#### 二、音乐音色优化
+
+**问题**：原始音色为纯正弦波 + 简单包络，听起来像"AI 电子音"，不好听。
+
+**优化1：基础音色改善（第一轮）**
+
+| 改进项 | 之前 | 之后 |
+|--------|------|------|
+| 波形 | 纯正弦波 | 叠加4层泛音（基频+2/3/4次谐波） |
+| 包络 | 简单 Attack+Release | 完整 ADSR |
+| 节奏 | 所有音符相同时长 | 混合二分/四分/八分音符 |
+| 旋律 | 纯随机游走 | 60%后倾向回归根音 + 结尾解决 |
+
+**优化2：多音色乐器模拟（第二轮）**
+
+根据情绪的 `mood` 字段，使用不同音色合成方法：
+
+| 情绪 | mood | 音色 | 合成特征 |
+|------|------|------|---------|
+| Happy / Surprised | bright / playful | 明亮钢琴 | 微失谐双振荡器 + 非整数泛音 + 指数衰减 |
+| Neutral | calm | 柔和钢琴 | 力度响应 + 钢琴衰减包络 |
+| Sad | melancholic | 柔和弦乐 | 慢起音 + 颤音(vibrato) + 二次曲线包络 |
+| Disgust | dark | 暗色铺底 | LFO 音量起伏 + 三次曲线包络 |
+| Fear | tense | 拨弦/吉他 | 丰富高次谐波 + 快速衰减 |
+| Angry | intense | 粗犷失真 | 锯齿波 + tanh 软削波 + 微噪声 |
+
+**改动文件**：
+
+| 文件 | 改动 |
+|------|------|
+| `src/audio/audio_player.h` | 新增 `Timbre` 枚举，`play()` 接受 mood 参数，新增 5 种合成方法声明 |
+| `src/audio/audio_player.cpp` | 新增 `synthPiano/synthStrings/synthPad/synthPlucked/synthHarsh` 5 种合成方法，每种模拟不同乐器的物理特征 |
+| `src/generator/music_generator.cpp` | 节奏变化 + 主音回归引力 + 结尾解决 |
+| `src/main.cpp` | `player.play()` 调用传入 mood 参数 |
+| `src/detector/emotion_recognizer.cpp` | BGR→RGB 颜色转换修复 |
+
+#### 三、Git 网络配置调整
+
+- 离开校园网后，原代理 `10.38.70.118:7897` 不通
+- Windows 端改用本地代理 `127.0.0.1:7897`
+- VM 端无法通过代理访问 GitHub（宿主机代理端口未对 VM 开放）
+- VM 端 git pull 暂时无法使用，需配置"允许局域网连接"或手动同步

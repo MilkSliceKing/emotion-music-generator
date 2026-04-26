@@ -84,6 +84,7 @@ Emotion EmotionRecognizer::recognizeFromImage(const cv::Mat& frame, const FaceRe
     // 2. 预处理：缩放到 224x224 BGR → ImageNet 归一化 → NCHW
     cv::Mat resized;
     cv::resize(face_crop, resized, cv::Size(224, 224));
+    cv::cvtColor(resized, resized, cv::COLOR_BGR2RGB);
 
     resized.convertTo(resized, CV_32F, 1.0 / 255.0);
 
