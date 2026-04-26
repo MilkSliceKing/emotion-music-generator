@@ -47,22 +47,41 @@ std::vector<float> AudioPlayer::generateSineWave(int pitch, double duration, int
     int num_samples = static_cast<int>(sample_rate * duration);
     std::vector<float> samples(num_samples);
 
-    double attack  = 0.01;  // 起音 10ms
-    double release = 0.05;  // 释音 50ms
+    // ADSR 包络参数
+    double attack  = std::min(0.02, duration * 0.1);   // 起音
+    double decay   = std::min(0.05, duration * 0.15);   // 衰减
+    double sustain_level = 0.7;                          // 持续电平
+    double release = std::min(0.08, duration * 0.25);    // 释音
+
+    // 泛音系数 (模拟类钢琴音色)
+    // 基频=1.0, 2次谐波=0.5, 3次=0.25, 4次=0.12
+    static const double harm_amp[] = {1.0, 0.5, 0.25, 0.12};
+    static const int num_harmonics = 4;
 
     for (int i = 0; i < num_samples; ++i) {
         double t = static_cast<double>(i) / sample_rate;
 
-        // 简单包络 (Attack + Sustain + Release)
+        // ADSR 包络
         double envelope = 1.0;
         if (t < attack) {
             envelope = t / attack;
+        } else if (t < attack + decay) {
+            double decay_progress = (t - attack) / decay;
+            envelope = 1.0 - (1.0 - sustain_level) * decay_progress;
         } else if (t > duration - release) {
-            envelope = (duration - t) / release;
+            envelope = sustain_level * (duration - t) / release;
             if (envelope < 0) envelope = 0;
+        } else {
+            envelope = sustain_level;
         }
 
-        samples[i] = static_cast<float>(envelope * 0.5 * std::sin(2.0 * M_PI * freq * t));
+        // 叠加泛音
+        double sample = 0.0;
+        for (int h = 0; h < num_harmonics; ++h) {
+            sample += harm_amp[h] * std::sin(2.0 * M_PI * freq * (h + 1) * t);
+        }
+
+        samples[i] = static_cast<float>(envelope * 0.4 * sample);
     }
 
     return samples;
