@@ -175,7 +175,7 @@ int main(int argc, char* argv[]) {
                     now - last_music_time).count();
                 if (is_image_mode || time_since_music >= 5) {
                     auto notes = generator.generate(current_params);
-                    player.play(notes);
+                    player.play(notes, current_params.mood);
                     last_music_time = now;
                     std::cout << "[播放] " << emotionToString(current_emotion)
                               << " -> " << current_params.key << " " << current_params.scale
@@ -198,7 +198,7 @@ int main(int argc, char* argv[]) {
 
         if (key == ' ') {
             auto notes = generator.generate(current_params);
-            player.play(notes);
+            player.play(notes, current_params.mood);
             std::cout << "[手动播放] " << emotionToString(current_emotion) << std::endl;
         }
 
