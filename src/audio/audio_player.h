@@ -22,6 +22,7 @@ public:
 
     bool init();
     void play(const std::vector<Note>& notes, const std::string& mood = "calm");
+    void playComposition(const Composition& comp);
     void stop();
     void cleanup();
     bool isPlaying();

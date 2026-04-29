@@ -325,6 +325,114 @@ std::vector<float> AudioPlayer::generateNote(int pitch, double duration,
 
 // ========== WAV / 播放 ==========
 
+void AudioPlayer::playComposition(const Composition& comp) {
+    if (!initialized_) {
+        if (!init()) {
+            std::cerr << "[AudioPlayer] 初始化失败，无法播放" << std::endl;
+            return;
+        }
+    }
+
+    if (child_pid_ > 0) {
+        stop();
+    }
+
+    const int sample_rate = 44100;
+    Timbre timbre = moodToTimbre(comp.mood);
+
+    // 计算总采样数
+    int total_samples = static_cast<int>(comp.total_duration * sample_rate);
+    if (total_samples <= 0) {
+        std::cerr << "[AudioPlayer] 乐曲时长为空" << std::endl;
+        return;
+    }
+
+    // 分配混合缓冲区
+    std::vector<float> mix_buffer(total_samples, 0.0f);
+
+    // 渲染旋律（使用情绪对应音色）
+    int melody_count = 0, acc_count = 0;
+    for (const auto& note : comp.melody) {
+        if (note.is_rest) continue;
+        auto wave = generateNote(note.pitch, note.duration, timbre,
+                                  note.velocity, sample_rate);
+        int start_sample = static_cast<int>(note.start_time * sample_rate);
+        // 叠加到混合缓冲区
+        for (size_t i = 0; i < wave.size(); ++i) {
+            int idx = start_sample + static_cast<int>(i);
+            if (idx >= 0 && idx < total_samples) {
+                mix_buffer[idx] += wave[i];
+            }
+        }
+        melody_count++;
+    }
+
+    // 渲染伴奏（使用柔和钢琴，力度已在生成时降低）
+    Timbre acc_timbre = Timbre::MELLOW_PIANO;
+    for (const auto& note : comp.accompaniment) {
+        if (note.is_rest) continue;
+        auto wave = generateNote(note.pitch, note.duration, acc_timbre,
+                                  note.velocity, sample_rate);
+        int start_sample = static_cast<int>(note.start_time * sample_rate);
+        for (size_t i = 0; i < wave.size(); ++i) {
+            int idx = start_sample + static_cast<int>(i);
+            if (idx >= 0 && idx < total_samples) {
+                mix_buffer[idx] += wave[i];
+            }
+        }
+        acc_count++;
+    }
+
+    // 全局归一化防削波
+    float peak = 0.0f;
+    for (float s : mix_buffer) {
+        float abs_s = std::abs(s);
+        if (abs_s > peak) peak = abs_s;
+    }
+    if (peak > 0.9f) {
+        float scale = 0.9f / peak;
+        for (float& s : mix_buffer) {
+            s *= scale;
+        }
+    }
+
+    double duration = mix_buffer.size() / static_cast<double>(sample_rate);
+    std::cout << "[AudioPlayer] 合成乐曲: " << melody_count << " 个旋律音符, "
+              << acc_count << " 个伴奏音符, " << duration << " 秒, 音色: " << comp.mood
+              << std::endl;
+
+    std::string wav_path = "/tmp/emotion_music.wav";
+    if (!writeWavFile(wav_path, mix_buffer, sample_rate)) {
+        std::cerr << "[AudioPlayer] WAV 文件写入失败" << std::endl;
+        return;
+    }
+
+    struct stat st;
+    if (stat(wav_path.c_str(), &st) == 0) {
+        std::cout << "[AudioPlayer] WAV 文件: " << wav_path
+                  << " (" << st.st_size << " 字节)" << std::endl;
+    } else {
+        std::cerr << "[AudioPlayer] WAV 文件不存在，写入可能失败" << std::endl;
+        return;
+    }
+
+    std::string player_cmd = findPlayerCommand();
+    pid_t pid = fork();
+
+    if (pid == 0) {
+        execlp(player_cmd.c_str(), player_cmd.c_str(), wav_path.c_str(), (char*)nullptr);
+        std::cerr << "[AudioPlayer] execlp 失败: " << player_cmd << std::endl;
+        _exit(127);
+    } else if (pid > 0) {
+        child_pid_ = pid;
+        playing_ = true;
+        std::cout << "[AudioPlayer] 开始播放 (PID: " << pid
+                  << ", 播放器: " << player_cmd << ")" << std::endl;
+    } else {
+        std::cerr << "[AudioPlayer] fork() 失败" << std::endl;
+    }
+}
+
 bool AudioPlayer::writeWavFile(const std::string& filename,
                                 const std::vector<float>& samples,
                                 int sample_rate) {

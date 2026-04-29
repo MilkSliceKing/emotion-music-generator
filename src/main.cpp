@@ -174,8 +174,8 @@ int main(int argc, char* argv[]) {
                 auto time_since_music = std::chrono::duration_cast<std::chrono::seconds>(
                     now - last_music_time).count();
                 if (is_image_mode || time_since_music >= 5) {
-                    auto notes = generator.generate(current_params);
-                    player.play(notes, current_params.mood);
+                    auto comp = generator.generateComposition(current_params);
+                    player.playComposition(comp);
                     last_music_time = now;
                     std::cout << "[播放] " << emotionToString(current_emotion)
                               << " -> " << current_params.key << " " << current_params.scale
@@ -197,8 +197,8 @@ int main(int argc, char* argv[]) {
         if (key == 27) break;
 
         if (key == ' ') {
-            auto notes = generator.generate(current_params);
-            player.play(notes, current_params.mood);
+            auto comp = generator.generateComposition(current_params);
+            player.playComposition(comp);
             std::cout << "[手动播放] " << emotionToString(current_emotion) << std::endl;
         }
 

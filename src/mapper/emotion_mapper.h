@@ -6,11 +6,13 @@
 
 // 音乐参数结构体
 struct MusicParams {
-    int tempo;          // BPM
-    std::string key;    // 调性: C, D, E, F, G, A, B
-    std::string scale;  // 音阶: major, minor, blues
-    int velocity;       // MIDI 力度 0-127
-    std::string mood;   // 情绪标签
+    int tempo;                  // BPM
+    std::string key;            // 调性: C, D, E, F, G, A, B
+    std::string scale;          // 音阶: major, minor, blues
+    int velocity;               // MIDI 力度 0-127
+    std::string mood;           // 情绪标签
+    std::string progression;    // 和弦进行: "I-V-vi-IV"
+    std::string accompaniment;  // 伴奏模式: "arpeggio"/"block"/"alberti"/"none"
 };
 
 class EmotionMapper {
