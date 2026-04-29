@@ -110,6 +110,63 @@ std::vector<float> AudioPlayer::synthPiano(int pitch, double duration,
     return samples;
 }
 
+std::vector<float> AudioPlayer::synthSoftPiano(int pitch, double duration,
+                                                int velocity, int sample_rate) {
+    double freq = midiToFrequency(pitch);
+    int num_samples = static_cast<int>(sample_rate * duration);
+    std::vector<float> samples(num_samples);
+
+    double vel_factor = velocity / 127.0;
+
+    // 柔和钢琴特征：更少的泛音、更慢的起音、更温暖的音色
+    int max_harmonics = static_cast<int>(2 + vel_factor * 2);  // 2~4 个泛音（比明亮钢琴少）
+    double attack = 0.015;   // 15ms 较柔和的起音（比明亮钢琴慢3倍）
+    double decay_rate = 2.0;  // 较慢的衰减，更绵长
+    double tail = 0.1;        // 较长的尾部释音
+
+    for (int i = 0; i < num_samples; ++i) {
+        double t = static_cast<double>(i) / sample_rate;
+
+        // 包络：柔和起音 + 较慢指数衰减
+        double envelope;
+        if (t < attack) {
+            // 二次曲线起音，比线性更柔和
+            double ratio = t / attack;
+            envelope = ratio * ratio;
+        } else {
+            envelope = std::exp(-decay_rate * (t - attack));
+        }
+        if (t > duration - tail) {
+            double fade = (duration - t) / tail;
+            envelope *= fade * fade;  // 平滑释音
+        }
+
+        // 泛音：强调基频，高次泛音快速衰减
+        double sample = 0.0;
+        for (int h = 1; h <= max_harmonics; ++h) {
+            // 泛音幅度：1/h^2（比明亮钢琴衰减更快，听起来更圆）
+            double amp = 1.0 / static_cast<double>(h * h);
+
+            // 时间相关的高频衰减（模拟琴槌的软质特性）
+            double h_decay = std::exp(-0.5 * h * t);
+            amp *= h_decay;
+
+            sample += amp * std::sin(2.0 * M_PI * freq * h * t);
+        }
+
+        // 轻微的合唱效果（两列非常接近的振荡器），增加温暖感
+        double detune1 = 1.0005;
+        double detune2 = 0.9995;
+        double chorus = 0.0;
+        chorus += 0.3 * std::sin(2.0 * M_PI * freq * detune1 * t);
+        chorus += 0.3 * std::sin(2.0 * M_PI * freq * detune2 * t);
+
+        samples[i] = static_cast<float>(envelope * 0.2 * (sample + chorus));
+    }
+
+    return samples;
+}
+
 std::vector<float> AudioPlayer::synthStrings(int pitch, double duration,
                                               int velocity, int sample_rate) {
     double freq = midiToFrequency(pitch);
@@ -309,7 +366,7 @@ std::vector<float> AudioPlayer::generateNote(int pitch, double duration,
         case Timbre::BRIGHT_PIANO:
             return synthPiano(pitch, duration, velocity, sample_rate);
         case Timbre::MELLOW_PIANO:
-            return synthPiano(pitch, duration, velocity, sample_rate);
+            return synthSoftPiano(pitch, duration, velocity, sample_rate);
         case Timbre::SOFT_STRINGS:
             return synthStrings(pitch, duration, velocity, sample_rate);
         case Timbre::DARK_PAD:

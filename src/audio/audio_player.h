@@ -42,6 +42,7 @@ private:
 
     // 各音色的合成方法
     std::vector<float> synthPiano(int pitch, double duration, int velocity, int sample_rate);
+    std::vector<float> synthSoftPiano(int pitch, double duration, int velocity, int sample_rate);
     std::vector<float> synthStrings(int pitch, double duration, int velocity, int sample_rate);
     std::vector<float> synthPad(int pitch, double duration, int velocity, int sample_rate);
     std::vector<float> synthPlucked(int pitch, double duration, int velocity, int sample_rate);
