@@ -357,6 +357,61 @@ std::vector<float> AudioPlayer::synthHarsh(int pitch, double duration,
     return samples;
 }
 
+std::vector<float> AudioPlayer::synthSoftPiano(int pitch, double duration,
+                                                int velocity, int sample_rate) {
+    double freq = midiToFrequency(pitch);
+    int num_samples = static_cast<int>(sample_rate * duration);
+    std::vector<float> samples(num_samples);
+
+    double vel_factor = velocity / 127.0;
+    int max_harmonics = static_cast<int>(2 + vel_factor * 2);  // 2~4 个泛音（比明亮钢琴少）
+
+    // 柔和钢琴：15ms 二次曲线起音 + 较慢衰减
+    double attack = 0.015;
+    double decay_rate = 2.5;
+
+    // 稍大失谐 + 合唱效果
+    double detune = 1.002;
+
+    for (int i = 0; i < num_samples; ++i) {
+        double t = static_cast<double>(i) / sample_rate;
+
+        // 二次曲线起音（比明亮钢琴更柔和）
+        double envelope;
+        if (t < attack) {
+            double x = t / attack;
+            envelope = x * x;   // 二次曲线
+        } else {
+            envelope = std::exp(-decay_rate * (t - attack));
+        }
+        // 尾部平滑释音
+        double tail = 0.06;
+        if (t > duration - tail) {
+            double fade = (duration - t) / tail;
+            envelope *= fade;
+        }
+
+        double sample = 0.0;
+        for (int h = 1; h <= max_harmonics; ++h) {
+            double stretch = 1.0 + 0.0002 * h * h;
+            double harmonic_freq = freq * h * stretch;
+            double amp = 1.0 / std::pow(h, 1.5);
+
+            // 时间相关高频衰减（高泛音比低泛音衰减更快）
+            double h_decay = std::exp(-0.5 * h * t);
+
+            // 主振荡器
+            sample += amp * h_decay * std::sin(2.0 * M_PI * harmonic_freq * t);
+            // 合唱效果（稍强失谐）
+            sample += amp * 0.4 * h_decay * std::sin(2.0 * M_PI * harmonic_freq * detune * t);
+        }
+
+        samples[i] = static_cast<float>(envelope * 0.20 * sample);
+    }
+
+    return samples;
+}
+
 // ========== 统一接口 ==========
 
 std::vector<float> AudioPlayer::generateNote(int pitch, double duration,
@@ -550,7 +605,8 @@ std::string AudioPlayer::findPlayerCommand() {
     return "";
 }
 
-void AudioPlayer::play(const std::vector<Note>& notes, const std::string& mood) {
+void AudioPlayer::playComposition(const std::vector<TimedNote>& notes,
+                                   const std::string& mood) {
     if (!initialized_) {
         if (!init()) {
             std::cerr << "[AudioPlayer] 初始化失败，无法播放" << std::endl;
@@ -570,19 +626,44 @@ void AudioPlayer::play(const std::vector<Note>& notes, const std::string& mood) 
     const int sample_rate = 44100;
     Timbre timbre = moodToTimbre(mood);
 
-    // 合成所有音符
-    std::vector<float> audio_data;
-    for (const auto& note : notes) {
-        auto wave = generateNote(note.pitch, note.duration, timbre, note.velocity, sample_rate);
-        audio_data.insert(audio_data.end(), wave.begin(), wave.end());
+    // 计算总时长
+    double total_duration = 0.0;
+    for (const auto& n : notes) {
+        double end = n.start_time + n.duration;
+        if (end > total_duration) total_duration = end;
     }
 
-    double duration = audio_data.size() / static_cast<double>(sample_rate);
-    std::cout << "[AudioPlayer] 合成 " << notes.size() << " 个音符, "
-              << duration << " 秒, 音色: " << mood << std::endl;
+    int total_samples = static_cast<int>(total_duration * sample_rate) + sample_rate;
+    std::vector<float> buffer(total_samples, 0.0f);
+
+    // 逐个合成并叠加到时间线上
+    for (const auto& note : notes) {
+        auto wave = generateNote(note.pitch, note.duration, timbre,
+                                 note.velocity, sample_rate);
+        int start = static_cast<int>(note.start_time * sample_rate);
+        for (int i = 0; i < static_cast<int>(wave.size())
+                         && start + i < total_samples; ++i) {
+            buffer[start + i] += wave[i];
+        }
+    }
+
+    // 归一化防削波
+    float max_val = 0.01f;
+    for (auto s : buffer) {
+        float a = std::fabs(s);
+        if (a > max_val) max_val = a;
+    }
+    float norm_scale = 0.9f / max_val;
+    for (auto& s : buffer) {
+        s *= norm_scale;
+    }
+
+    double play_duration = buffer.size() / static_cast<double>(sample_rate);
+    std::cout << "[AudioPlayer] 混合合成 " << notes.size() << " 个音符, "
+              << play_duration << " 秒, 音色: " << mood << std::endl;
 
     std::string wav_path = "/tmp/emotion_music.wav";
-    if (!writeWavFile(wav_path, audio_data, sample_rate)) {
+    if (!writeWavFile(wav_path, buffer, sample_rate)) {
         std::cerr << "[AudioPlayer] WAV 文件写入失败" << std::endl;
         return;
     }

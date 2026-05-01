@@ -40,10 +40,11 @@
 | 模块 | AI生成比例 | 说明 |
 |------|-----------|------|
 | face_detector | ~80% | dlib API 使用由AI生成，调试由人工完成 |
-| emotion_recognizer | ~90% | 特征提取算法和阈值由AI设计 |
-| emotion_mapper | ~95% | 简单映射表 |
-| music_generator | ~90% | 音阶定义和旋律生成策略 |
-| audio_player | ~90% | PortAudio API 使用 |
+| emotion_recognizer | ~90% | onnxruntime API + HSEmotion 预处理 |
+| emotion_mapper | ~95% | 简单映射表 + 和弦进行配置 |
+| music_generator | ~95% | 和弦进行+旋律+伴奏系统重写 |
+| audio_player | ~90% | 6种音色合成 + 混合播放 |
+| overlay_renderer | ~95% | UI 布局和绘制 |
 | main.cpp | ~85% | 主循环框架由AI生成 |
 | CMakeLists.txt | ~90% | 构建配置 |
 | 文档 | ~80% | 框架由AI生成，实际数据由人工填写 |
@@ -75,3 +76,17 @@ AI: 基于dlib 68关键点，可以从以下特征进行情绪分类：
 ```
 
 （以上为示例，实际交互记录可在 Claude Code 会话历史中查看）
+
+---
+
+#### 2026-05-01：伴奏系统全面重写
+
+- **AI 辅助内容**：
+  1. 设计 7 种情绪的独立和弦进行（I-V-vi-IV 等）
+  2. 实现和弦引导旋律生成算法（强拍 70% 和弦音）
+  3. 实现 3 种左手伴奏模式（分解和弦/柱式和弦/阿尔贝蒂低音）
+  4. 设计乐句结构（4 小节乐句 + 力度曲线 + V-I 解决）
+  5. 实现 synthSoftPiano() 区分柔和钢琴音色
+  6. 实现时间线混合播放（TimedNote 叠加 + 归一化防削波）
+- **人工修改**：待 VM 编译测试后根据试听效果微调
+- **最终结果**：待验证

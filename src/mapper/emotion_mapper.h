@@ -2,17 +2,19 @@
 #define EMOTION_MAPPER_H
 
 #include <string>
+#include <vector>
 #include "detector/emotion_recognizer.h"
 
 // 音乐参数结构体
 struct MusicParams {
-    int tempo;                  // BPM
-    std::string key;            // 调性: C, D, E, F, G, A, B
-    std::string scale;          // 音阶: major, minor, blues
-    int velocity;               // MIDI 力度 0-127
-    std::string mood;           // 情绪标签
-    std::string progression;    // 和弦进行: "I-V-vi-IV"
-    std::string accompaniment;  // 伴奏模式: "arpeggio"/"block"/"alberti"/"none"
+    int tempo;                      // BPM
+    std::string key;                // 调性: C, D, E, F, G, A, B
+    std::string scale;              // 音阶: major, minor, blues
+    int velocity;                   // MIDI 力度 0-127
+    std::string mood;               // 情绪标签
+    std::vector<int> progression;   // 和弦进行（音阶度数 0-6）
+    std::string accompaniment;      // 伴奏模式: "arpeggiated", "block", "alberti"
+    int num_phrases;                // 乐句数量（每个乐句 4 小节）
 };
 
 class EmotionMapper {

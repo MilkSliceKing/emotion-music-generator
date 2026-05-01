@@ -21,8 +21,11 @@ public:
     ~AudioPlayer();
 
     bool init();
-    void play(const std::vector<Note>& notes, const std::string& mood = "calm");
-    void playComposition(const Composition& comp);
+
+    // 混合播放：时间线叠加旋律+伴奏，归一化防削波
+    void playComposition(const std::vector<TimedNote>& notes,
+                         const std::string& mood = "calm");
+
     void stop();
     void cleanup();
     bool isPlaying();

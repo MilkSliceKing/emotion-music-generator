@@ -707,94 +707,65 @@ cv::cvtColor(resized, resized, cv::COLOR_BGR2RGB);
 
 ## 日期：2026-04-29
 
-### 任务：音乐生成重写 — 从随机音符到和弦进行+旋律+伴奏
+### 任务：音乐生成重写（初版）— 从随机音符到和弦进行+旋律+伴奏
 
-#### 一、背景与动机
-
-用户反馈：当前生成的音乐听起来不像轻音乐/钢琴曲，更像是随机音符拼接。原因是原始音乐生成采用"音阶随机游走"算法，缺乏和弦、伴奏和乐句结构。目标是让音乐听起来像真正的轻音乐钢琴曲。
-
-#### 二、整体改动
-
-**核心思路**：加入和弦进行系统 + 基于和弦音的旋律生成 + 左手伴奏 + 乐句结构。
-
-**改动文件**：
-
-| 文件 | 改动 |
-|------|------|
-| `src/mapper/emotion_mapper.h` | MusicParams 新增 `progression` 和 `accompaniment` 字段 |
-| `src/mapper/emotion_mapper.cpp` | 7 种情绪各增加和弦进行和伴奏模式 |
-| `src/generator/music_generator.h` | Note 增加 `start_time`/`is_rest`；新增 `ChordDef`/`Composition` 结构体；新增 `generateComposition()` |
-| `src/generator/music_generator.cpp` | 核心重写：和弦解析 + 旋律生成 + 伴奏生成 + 乐句结构 |
-| `src/audio/audio_player.h` | 新增 `playComposition()` 方法 + `synthSoftPiano()` 声明 |
-| `src/audio/audio_player.cpp` | 实现 `playComposition()` 时间线混合 + 新增 `synthSoftPiano()` 柔和钢琴音色 |
-| `src/main.cpp` | 调用改为 `generateComposition()` + `playComposition()` |
-
-#### 三、和弦进行系统
-
-**每种情绪对应独特的和弦进行**：
-
-| 情绪 | 调式 | 和弦进行 | 伴奏模式 |
-|------|------|----------|----------|
-| Happy | C major | I-V-vi-IV（流行经典进行） | 分解和弦 |
-| Sad | A minor | i-VII-VI-VII（安达卢西亚式下行） | 分解和弦 |
-| Angry | E minor | i-iv-V-i（古典式张力） | 柱式和弦 |
-| Surprised | G major | I-vi-IV-V（五十年代进行） | 阿尔贝蒂低音 |
-| Neutral | C major | I-IV-V-I（简单正格进行） | 分解和弦 |
-| Fear | B minor | i-VI-III-VII（漂浮小调） | 分解和弦 |
-| Disgust | F blues | i-iv-i-iv（小调布鲁斯） | 柱式和弦 |
-
-**和弦解析引擎**：将罗马数字字符串（如 `"I-V-vi-IV"`）解析为具体 MIDI 音高的和弦列表。大/小调使用不同的音阶度数→和弦性质映射表。
-
-#### 四、旋律生成算法
-
-替换旧的随机游走，新算法：
-
-- **强拍（1、3拍）**：70% 选和弦音，30% 选音阶音
-- **弱拍（2拍）**：40% 和弦音，60% 经过音（步进连接）
-- **导音（4拍）**：倾向解决到下一个和弦的和弦音
-- **乐句结构**：4 小节一句，力度曲线 `[0.6, 0.8, 1.0, 0.7]`（起承转合）
-- **呼吸**：乐句结尾插入半拍休止
-- **末尾解决**：倒数第二音用五度，最后一音回到根音（V-I 解决）
-
-#### 五、左手伴奏
-
-三种伴奏模式，所有伴奏低一个八度：
-
-- **分解和弦（arpeggio）**：每拍一个音，根音→三度→五度→根音
-- **柱式和弦（block）**：每小节第1拍同时弹三个音，持续2拍
-- **阿尔贝蒂低音（alberti）**：每半拍一个音，根音→五度→三度→五度快速交替
-
-#### 六、混合播放
-
-`playComposition()` 将旋律和伴奏叠加到同一时间线上：
-1. 分配混合缓冲区（总时长 × 采样率）
-2. 旋律用情绪对应音色，伴奏用柔和钢琴
-3. 按 `start_time` 叠加波形
-4. 全局归一化防削波
-
-#### 七、柔和钢琴音色
-
-用户反馈伴奏的电子琴声音突兀，新增 `synthSoftPiano()` 专门用于伴奏和 MELLOW_PIANO：
-
-| 对比项 | 明亮钢琴 (synthPiano) | 柔和钢琴 (synthSoftPiano) |
-|--------|----------------------|--------------------------|
-| 泛音数量 | 4-8 个 | 2-4 个 |
-| 起音 | 5ms 线性 | 15ms 二次曲线 |
-| 衰减速率 | 3.0 | 2.0（更绵长） |
-| 高频衰减 | 无 | 时间相关衰减（模拟软槌） |
-| 合唱效果 | 微失谐 | 轻微双合唱（±0.0005 失谐） |
-
-#### 八、VM 网络问题
-
-- 代理和直连均无法访问 GitHub
-- 尝试 `git config --global --unset http.proxy` 直连也被拒
-- 尝试 `10.0.2.2:7897` 代理也被拒（宿主机代理已关闭）
-- 尝试 scp 传文件但 VM 密码认证未通过
-- **待解决**：下次需要配置代理"允许局域网连接"或其他文件传输方式
-
-#### 九、Git 提交记录
+在 VM 上完成和弦进行系统的初版实现，包括罗马数字解析引擎、基于和弦音的旋律生成、三种左手伴奏模式和柔和钢琴音色。VM 网络不通，代码通过 GitHub 间接同步。
 
 ```
-d577caf feat: 和弦进行+旋律+伴奏重写，让音乐听起来像真正的轻音乐钢琴曲
-07cccb8 feat: 新增柔和钢琴音色(synthSoftPiano)，改善伴奏听感
+d577caf feat: 和弦进行+旋律+伴奏重写
+07cccb8 feat: 新增柔和钢琴音色(synthSoftPiano)
+dc66294 docs: 更新开发日志(4/29)
 ```
+
+---
+
+## 日期：2026-05-01
+
+### 任务：伴奏系统重写（优化版）— 简化架构 + 调优参数
+
+#### 一、背景
+
+4/29 初版使用罗马数字字符串（`"I-V-vi-IV"`）+ `ChordDef` 解析引擎 + `Composition` 结构体，架构较复杂。用户要求进一步调优伴奏。本次重写简化为整数度数数组方案，减少一层字符串解析。
+
+#### 二、架构变化
+
+| 对比项 | 4/29 初版 | 5/1 优化版 |
+|--------|----------|-----------|
+| 和弦进行表示 | 罗马数字字符串 `"I-V-vi-IV"` | 整数度数数组 `{0,4,5,3}` |
+| 和弦解析 | `ChordDef` + `parseProgression()` | `buildChord()` 直接从音阶构建 |
+| 数据结构 | `Composition{melody, accompaniment}` | `vector<TimedNote>` 扁平列表 |
+| 休止符 | `Note.is_rest` 布尔字段 | 乐句间时间间隔 |
+| 伴奏音色 | 独立柔和钢琴 | 与旋律共用音色 |
+| 伴奏模式名 | `arpeggio` | `arpeggiated` |
+
+#### 三、7 种情绪和弦进行配置（调优后）
+
+| 情绪 | 调/音阶 | BPM | 和弦进行 | 伴奏模式 |
+|------|---------|-----|---------|---------|
+| Happy | C major | 140 | I-V-vi-IV（流行阳光） | 分解和弦 |
+| Sad | A minor | 60 | i-VII-VI-VII（安达卢西亚） | 柱式和弦 |
+| Angry | E minor | 160 | i-iv-V-i（强力小调） | 柱式和弦 |
+| Surprised | G major | 120 | I-IV-V-I（明亮号角） | 分解和弦 |
+| Neutral | C major | 90 | I-vi-IV-V（50 年代经典） | 阿尔贝蒂低音 |
+| Fear | B minor | 100 | i-iv-V-i（紧张小调） | 分解和弦 |
+| Disgust | F blues | 80 | i-VI-V-iv（暗沉下行） | 阿尔贝蒂低音 |
+
+#### 四、修改文件汇总
+
+| 文件 | 改动 | 行数变化 |
+|------|------|---------|
+| `src/mapper/emotion_mapper.h` | MusicParams 新增 3 字段 | +3 行 |
+| `src/mapper/emotion_mapper.cpp` | 7 种情绪配置 | +8 行 |
+| `src/generator/music_generator.h` | TimedNote + 新接口 | +17 行 |
+| `src/generator/music_generator.cpp` | 完全重写 | +280 -109 行 |
+| `src/audio/audio_player.h` | 新增 playComposition + synthSoftPiano | +3 行 |
+| `src/audio/audio_player.cpp` | synthSoftPiano + playComposition | +96 -67 行 |
+| `src/main.cpp` | API 切换 | +4 -4 行 |
+| **总计** | **7 个文件** | **+398 -105 行** |
+
+#### 五、待办
+
+- [ ] VM 拉取本次更新（需配置 VM 网络或手动同步）
+- [ ] VM 上编译测试
+- [ ] 摄像头实时模式完整功能测试
+- [ ] 根据试听效果进一步微调伴奏参数
