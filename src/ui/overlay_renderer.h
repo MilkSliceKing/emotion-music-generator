@@ -3,38 +3,60 @@
 
 #include <opencv2/opencv.hpp>
 #include <vector>
+#include <deque>
 #include "detector/emotion_recognizer.h"
 #include "mapper/emotion_mapper.h"
 
+// 按钮点击动作
+enum class ButtonAction {
+    NONE = 0,
+    QUIT,
+    PLAY,
+    AUTO_TOGGLE
+};
+
+// 按钮
+struct UIButton {
+    cv::Rect rect;
+    std::string label;
+    ButtonAction action;
+    bool active;
+    bool hovered;
+};
+
 class OverlayRenderer {
 public:
-    OverlayRenderer() = default;
+    OverlayRenderer();
 
     // 每帧调用一次，绘制全部 overlay
-    void render(cv::Mat& frame,
-                double fps,
-                Emotion current_emotion,
-                const std::vector<float>& confidences,
-                const MusicParams& music_params,
-                bool is_playing,
-                bool music_enabled,
-                bool face_detected,
-                int frame_count);
+    ButtonAction render(cv::Mat& frame,
+                        double fps,
+                        Emotion current_emotion,
+                        const std::vector<float>& confidences,
+                        const MusicParams& music_params,
+                        bool is_playing,
+                        bool music_enabled,
+                        bool face_detected,
+                        int frame_count,
+                        const std::deque<Emotion>& emotion_history);
 
     // 情绪对应颜色（供外部使用，如人脸框）
     static cv::Scalar getEmotionColor(Emotion e);
 
+    // 鼠标回调（public 以便 main.cpp 注册）
+    static void onMouse(int event, int x, int y, int flags, void* userdata);
+
 private:
-    // 毛玻璃效果：高斯模糊 + 半透明叠加
+    // 毛玻璃效果
     void drawFrostedRect(cv::Mat& frame, const cv::Rect& roi,
                          const cv::Scalar& tint_color = cv::Scalar(25, 25, 30),
                          double alpha = 0.35, int blur_size = 21);
 
-    // 圆角矩形填充
+    // 圆角矩形
     void drawRoundRect(cv::Mat& frame, const cv::Rect& rect, int radius,
                        const cv::Scalar& color, int thickness = -1);
 
-    // 发光文字（多层半透明模拟光晕）
+    // 发光文字
     void drawGlowText(cv::Mat& frame, const std::string& text, cv::Point org,
                       int font_face, double font_scale, const cv::Scalar& color,
                       int thickness = 1, int glow_layers = 3);
@@ -47,8 +69,16 @@ private:
                              int current_idx);
     void drawMusicPanel(cv::Mat& frame, const MusicParams& params,
                         bool is_playing, int frame_count, Emotion emotion);
+    void drawEmotionChart(cv::Mat& frame, const std::deque<Emotion>& history,
+                          Emotion current_emotion);
+    void drawButtons(cv::Mat& frame, bool is_playing, bool music_enabled);
     void drawFooterBar(cv::Mat& frame);
-    void drawNoFaceHint(cv::Mat& frame);
+
+    // 鼠标回调
+    void handleMouse(int event, int x, int y);
+    ButtonAction last_click_action_;
+
+    std::vector<UIButton> buttons_;
 
     static const cv::Scalar EMOTION_COLORS[7];
     static const std::string EMOTION_SHORT_NAMES[7];

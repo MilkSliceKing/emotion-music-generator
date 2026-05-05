@@ -96,6 +96,10 @@ int main(int argc, char* argv[]) {
     AudioPlayer player;
     OverlayRenderer renderer;
 
+    // 注册鼠标回调（用于屏幕按钮交互）
+    cv::namedWindow("Emotion Music Generator", cv::WINDOW_AUTOSIZE);
+    cv::setMouseCallback("Emotion Music Generator", OverlayRenderer::onMouse, &renderer);
+
     std::cout << "[初始化] 完成!" << std::endl;
     if (!is_image_mode) {
         std::cout << "按 ESC 退出, 按 SPACE 手动触发音乐, M 切换自动播放" << std::endl;
@@ -109,6 +113,7 @@ int main(int argc, char* argv[]) {
     double fps = 0.0;
 
     std::deque<Emotion> emotion_buffer;
+    std::deque<Emotion> emotion_history;  // 情绪历史（最近200帧）
     Emotion current_emotion = Emotion::NEUTRAL;
     auto last_music_time = std::chrono::steady_clock::now();
     bool music_enabled = true;
@@ -169,6 +174,10 @@ int main(int argc, char* argv[]) {
             current_emotion = smoothEmotion(emotion_buffer);
             current_params = mapper.mapToMusic(current_emotion);
 
+            // 更新情绪历史
+            emotion_history.push_back(current_emotion);
+            if (emotion_history.size() > 200) emotion_history.pop_front();
+
             // 自动播放音乐 (每5秒，图片模式立即播放)
             if (music_enabled) {
                 auto time_since_music = std::chrono::duration_cast<std::chrono::seconds>(
@@ -185,12 +194,26 @@ int main(int argc, char* argv[]) {
         }
 
         // ---- 绘制 UI overlay ----
-        renderer.render(frame, fps, current_emotion,
+        ButtonAction btn_action = renderer.render(frame, fps, current_emotion,
                         recognizer.getConfidences(), current_params,
                         player.isPlaying(), music_enabled,
-                        face_detected, total_frames);
+                        face_detected, total_frames, emotion_history);
 
         cv::imshow("Emotion Music Generator", frame);
+
+        // 处理按钮点击
+        if (btn_action == ButtonAction::QUIT) break;
+
+        if (btn_action == ButtonAction::PLAY) {
+            auto composition = generator.generateComposition(current_params);
+            player.playComposition(composition, current_params.mood);
+            std::cout << "[按钮播放] " << emotionToString(current_emotion) << std::endl;
+        }
+
+        if (btn_action == ButtonAction::AUTO_TOGGLE) {
+            music_enabled = !music_enabled;
+            std::cout << "[自动播放] " << (music_enabled ? "开启" : "关闭") << std::endl;
+        }
 
         // 键盘控制
         int key = cv::waitKey(is_image_mode ? 0 : 1);
