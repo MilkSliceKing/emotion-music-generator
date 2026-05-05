@@ -52,6 +52,27 @@ std::vector<int> MusicGenerator::buildChord(int base, const std::vector<int>& sc
     return chord;
 }
 
+// ========== 旋律轮廓线 ==========
+
+// 乐句弧线：16 个拍位的力度系数，先升后降
+static double phraseArc(int bar, int beat) {
+    double progress = (bar * 4 + beat) / 16.0;  // 0.0 ~ 0.9375
+    double peak_pos = 0.625;  // 第 2.5 小节达到顶点
+    double contour;
+    if (progress < peak_pos) {
+        contour = progress / peak_pos;
+    } else {
+        contour = (1.0 - progress) / (1.0 - peak_pos);
+    }
+    return 0.5 + 0.5 * contour;  // 范围 0.5 ~ 1.0
+}
+
+// 强弱拍模式
+static double beatAccent(int beat) {
+    static const double accents[] = {1.0, 0.7, 0.85, 0.65};
+    return accents[beat % 4];
+}
+
 // ========== 旋律生成（一个 4 小节乐句）==========
 
 std::vector<TimedNote> MusicGenerator::generateMelodyPhrase(
@@ -78,9 +99,16 @@ std::vector<TimedNote> MusicGenerator::generateMelodyPhrase(
     if (current_idx >= static_cast<int>(pool.size())) current_idx = 0;
 
     double time = start_time;
+    bool recent_leap = false;  // 跳进后需要反向补偿
 
-    // 乐句力度曲线：起→承→转→合
-    double dynamics[] = {0.65, 0.80, 1.0, 0.55};
+    // 节奏类型权重
+    std::discrete_distribution<int> rhythm_dist({
+        35,  // 四分音符
+        25,  // 两个八分音符
+        10,  // 附点四分+八分
+        15,  // 二分音符
+        15   // 休止符
+    });
 
     for (int bar = 0; bar < 4; ++bar) {
         int chord_deg = phrase_chords[bar];
@@ -94,18 +122,27 @@ std::vector<TimedNote> MusicGenerator::generateMelodyPhrase(
             melody_chord.push_back(c);
         }
 
-        double bar_vel = velocity * dynamics[bar];
-
         for (int beat = 0; beat < 4; ++beat) {
             bool is_strong = (beat == 0 || beat == 2);
             bool is_last = (bar == 3 && beat >= 2);
 
-            // ---- 最后两拍：长音解决到根音 ----
+            // 拍级力度 = 强弱拍 × 乐句弧线 × 随机微调
+            double dynamic = beatAccent(beat) * phraseArc(bar, beat);
+            dynamic *= 0.95 + std::uniform_real_distribution<double>(0.0, 0.1)(rng);
+            double bar_vel = velocity * dynamic;
+
+            // ---- 最后两拍：长音解决 ----
             if (is_last && beat == 2) {
-                // 倒数第二拍：属音（五度）或三度
-                int penult = (current_idx + 2 < static_cast<int>(pool.size()))
-                             ? pool[current_idx + 2] : base + 7;
-                notes.push_back({penult, time, beat_dur, static_cast<int>(bar_vel * 0.8)});
+                // 倒数第二拍：向根音靠拢
+                int target;
+                if (std::uniform_real_distribution<double>(0.0, 1.0)(rng) < 0.7) {
+                    // 属音（五度）
+                    target = base + 7;
+                } else {
+                    // 三度
+                    target = base + 4;
+                }
+                notes.push_back({target, time, beat_dur, static_cast<int>(bar_vel * 0.8)});
                 time += beat_dur;
                 continue;
             }
@@ -116,13 +153,64 @@ std::vector<TimedNote> MusicGenerator::generateMelodyPhrase(
                 break;
             }
 
-            // ---- 正常音符 ----
+            // ---- 节奏选择 ----
+            int rhythm_type = rhythm_dist(rng);
+
+            if (rhythm_type == 4) {
+                // 休止符：跳过这一拍
+                time += beat_dur;
+                continue;
+            }
+
+            // ---- 选音 ----
             int target_pitch;
+            int prev_idx = current_idx;
+
+            // 旋律轮廓目标音高
+            double contour_progress = (bar * 4 + beat) / 16.0;
+            double peak_pos = 0.625;
+            double contour_val;
+            if (contour_progress < peak_pos) {
+                contour_val = contour_progress / peak_pos;
+            } else {
+                contour_val = (1.0 - contour_progress) / (1.0 - peak_pos);
+            }
+            int contour_pitch = base + static_cast<int>(contour_val * 12);
 
             if (is_strong) {
                 std::uniform_real_distribution<double> prob(0.0, 1.0);
-                if (prob(rng) < 0.7) {
-                    // 70%：选最近的和弦音
+                double roll = prob(rng);
+
+                if (recent_leap) {
+                    // 跳进后：反向级进补偿
+                    int dir = (current_idx > prev_idx) ? -1 : 1;
+                    int new_idx = std::clamp(current_idx + dir, 0,
+                                             static_cast<int>(pool.size()) - 1);
+                    target_pitch = pool[new_idx];
+                    recent_leap = false;
+                } else if (roll < 0.20) {
+                    // 20%：跳进（3-5 度到另一个和弦音）
+                    int best_idx = current_idx;
+                    int best_dist = 99;
+                    for (int c : melody_chord) {
+                        auto cit = std::find(pool.begin(), pool.end(), c);
+                        if (cit != pool.end()) {
+                            int ci = static_cast<int>(cit - pool.begin());
+                            int dist = std::abs(ci - current_idx);
+                            if (dist >= 3 && dist <= 7 && dist < best_dist) {
+                                best_dist = dist;
+                                best_idx = ci;
+                            }
+                        }
+                    }
+                    if (best_idx != current_idx) {
+                        target_pitch = pool[best_idx];
+                        recent_leap = true;
+                    } else {
+                        target_pitch = pool[current_idx];
+                    }
+                } else if (roll < 0.60) {
+                    // 40%：最近的和弦音
                     target_pitch = melody_chord[0];
                     int min_dist = std::abs(pool[current_idx] - melody_chord[0]);
                     for (int c : melody_chord) {
@@ -133,18 +221,48 @@ std::vector<TimedNote> MusicGenerator::generateMelodyPhrase(
                         }
                     }
                 } else {
-                    // 30%：级进
-                    std::uniform_int_distribution<int> step(-2, 2);
+                    // 40%：倾向轮廓目标音的和弦音
+                    target_pitch = melody_chord[0];
+                    int min_dist = std::abs(contour_pitch - melody_chord[0]);
+                    for (int c : melody_chord) {
+                        int dist = std::abs(contour_pitch - c);
+                        if (dist < min_dist) {
+                            min_dist = dist;
+                            target_pitch = c;
+                        }
+                    }
+                }
+            } else {
+                // 弱拍
+                std::uniform_real_distribution<double> prob(0.0, 1.0);
+                double roll = prob(rng);
+
+                if (recent_leap) {
+                    // 跳进后补偿
+                    int dir = (current_idx > prev_idx) ? -1 : 1;
+                    int new_idx = std::clamp(current_idx + dir, 0,
+                                             static_cast<int>(pool.size()) - 1);
+                    target_pitch = pool[new_idx];
+                    recent_leap = false;
+                } else if (roll < 0.15) {
+                    // 15%：邻音（上或下一步，下一拍倾向回来）
+                    int neighbor_dir = (std::uniform_int_distribution<int>(0, 1)(rng) == 0) ? 1 : -1;
+                    int new_idx = std::clamp(current_idx + neighbor_dir, 0,
+                                             static_cast<int>(pool.size()) - 1);
+                    target_pitch = pool[new_idx];
+                } else if (roll < 0.35) {
+                    // 20%：倾向轮廓方向
+                    int dir = (contour_pitch > pool[current_idx]) ? 1 : -1;
+                    int new_idx = std::clamp(current_idx + dir, 0,
+                                             static_cast<int>(pool.size()) - 1);
+                    target_pitch = pool[new_idx];
+                } else {
+                    // 50%：级进（-1, 0, +1）
+                    std::uniform_int_distribution<int> step(-1, 1);
                     int new_idx = std::clamp(current_idx + step(rng), 0,
                                              static_cast<int>(pool.size()) - 1);
                     target_pitch = pool[new_idx];
                 }
-            } else {
-                // 弱拍：级进（-1, 0, +1）
-                std::uniform_int_distribution<int> step(-1, 1);
-                int new_idx = std::clamp(current_idx + step(rng), 0,
-                                         static_cast<int>(pool.size()) - 1);
-                target_pitch = pool[new_idx];
             }
 
             // 更新当前位置
@@ -153,24 +271,51 @@ std::vector<TimedNote> MusicGenerator::generateMelodyPhrase(
                 current_idx = static_cast<int>(it - pool.begin());
             }
 
-            // 节奏：强拍可能拆成两个八分音符
-            std::uniform_real_distribution<double> rhythm_prob(0.0, 1.0);
-            if (is_strong && rhythm_prob(rng) < 0.4) {
-                // 两个八分音符
-                int second_idx = std::clamp(
-                    current_idx + std::uniform_int_distribution<int>(-1, 1)(rng),
-                    0, static_cast<int>(pool.size()) - 1);
+            // ---- 根据节奏类型生成音符 ----
+            if (rhythm_type == 0) {
+                // 四分音符
+                notes.push_back({target_pitch, time, beat_dur,
+                                 static_cast<int>(bar_vel)});
+            } else if (rhythm_type == 1) {
+                // 两个八分音符（第二个可能是经过音）
+                int second_idx;
+                int interval = current_idx - prev_idx;
+                if (std::abs(interval) >= 2) {
+                    // 大跳后插入经过音：中间位置
+                    int mid_idx = (current_idx + prev_idx) / 2;
+                    second_idx = std::clamp(mid_idx, 0,
+                                            static_cast<int>(pool.size()) - 1);
+                } else {
+                    second_idx = std::clamp(
+                        current_idx + std::uniform_int_distribution<int>(-1, 1)(rng),
+                        0, static_cast<int>(pool.size()) - 1);
+                }
                 double eighth = beat_dur * 0.5;
                 notes.push_back({target_pitch, time, eighth,
                                  static_cast<int>(bar_vel * 0.9)});
                 notes.push_back({pool[second_idx], time + eighth, eighth,
                                  static_cast<int>(bar_vel * 0.85)});
                 current_idx = second_idx;
-            } else {
-                // 四分音符
-                notes.push_back({target_pitch, time, beat_dur,
+            } else if (rhythm_type == 2) {
+                // 附点四分 + 八分（摇摆感）
+                double dotted = beat_dur * 0.75;
+                double short_note = beat_dur * 0.25;
+                notes.push_back({target_pitch, time, dotted,
                                  static_cast<int>(bar_vel)});
+                // 短音：同方向级进
+                int dir = (current_idx >= prev_idx) ? 1 : -1;
+                int next_idx = std::clamp(current_idx + dir, 0,
+                                          static_cast<int>(pool.size()) - 1);
+                notes.push_back({pool[next_idx], time + dotted, short_note,
+                                 static_cast<int>(bar_vel * 0.75)});
+                current_idx = next_idx;
+            } else if (rhythm_type == 3) {
+                // 二分音符（跨两拍）
+                notes.push_back({target_pitch, time, beat_dur * 2.0,
+                                 static_cast<int>(bar_vel * 0.9)});
+                time += beat_dur;  // 多跳一拍
             }
+
             time += beat_dur;
         }
     }

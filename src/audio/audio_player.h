@@ -61,6 +61,16 @@ private:
 
     // 查找可用的音频播放命令
     std::string findPlayerCommand();
+
+    // Schroeder 混响：4 comb + 2 allpass
+    std::vector<float> applyReverb(const std::vector<float>& dry,
+                                    float mix = 0.25f,
+                                    float room_size = 0.7f,
+                                    int sample_rate = 44100);
+
+    // 攻击瞬态噪声冲击
+    std::vector<float> generateNoiseBurst(int num_samples, double amplitude,
+                                           double decay_rate);
 };
 
 #endif // AUDIO_PLAYER_H
