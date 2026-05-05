@@ -57,25 +57,28 @@ void OverlayRenderer::drawFrostedRect(cv::Mat& frame, const cv::Rect& roi,
 void OverlayRenderer::drawRoundRect(cv::Mat& frame, const cv::Rect& rect, int radius,
                                       const cv::Scalar& color, int thickness) {
     int r = std::min({radius, rect.width / 2, rect.height / 2});
+    if (r < 1) r = 1;
     cv::Point tl(rect.x + r, rect.y + r);
     cv::Point br(rect.x + rect.width - r, rect.y + rect.height - r);
 
-    // 四个角的圆弧
-    cv::ellipse(frame, tl, cv::Size(r, r), 180, 0, 90, color, thickness);
-    cv::ellipse(frame, cv::Point(br.x, tl.y), cv::Size(r, r), 270, 0, 90, color, thickness);
-    cv::ellipse(frame, br, cv::Size(r, r), 0, 0, 90, color, thickness);
-    cv::ellipse(frame, cv::Point(tl.x, br.y), cv::Size(r, r), 90, 0, 90, color, thickness);
-
-    // 四条边
-    cv::line(frame, cv::Point(tl.x, rect.y), cv::Point(br.x, rect.y), color, thickness);
-    cv::line(frame, cv::Point(tl.x, rect.y + rect.height), cv::Point(br.x, rect.y + rect.height), color, thickness);
-    cv::line(frame, cv::Point(rect.x, tl.y), cv::Point(rect.x, br.y), color, thickness);
-    cv::line(frame, cv::Point(rect.x + rect.width, tl.y), cv::Point(rect.x + rect.width, br.y), color, thickness);
-
     if (thickness == -1) {
-        // 填充：用矩形填充中间区域
-        cv::rectangle(frame, cv::Point(rect.x + r, rect.y), cv::Point(rect.x + rect.width - r, rect.y + rect.height), color, -1);
-        cv::rectangle(frame, cv::Point(rect.x, rect.y + r), cv::Point(rect.x + rect.width, rect.y + rect.height - r), color, -1);
+        // 填充模式
+        cv::ellipse(frame, tl, cv::Size(r, r), 180, 0, 90, color, -1);
+        cv::ellipse(frame, cv::Point(br.x, tl.y), cv::Size(r, r), 270, 0, 90, color, -1);
+        cv::ellipse(frame, br, cv::Size(r, r), 0, 0, 90, color, -1);
+        cv::ellipse(frame, cv::Point(tl.x, br.y), cv::Size(r, r), 90, 0, 90, color, -1);
+        cv::rectangle(frame, cv::Point(tl.x, rect.y), cv::Point(br.x, rect.y + rect.height), color, -1);
+        cv::rectangle(frame, cv::Point(rect.x, tl.y), cv::Point(rect.x + rect.width, br.y), color, -1);
+    } else {
+        // 描边模式
+        cv::ellipse(frame, tl, cv::Size(r, r), 180, 0, 90, color, thickness);
+        cv::ellipse(frame, cv::Point(br.x, tl.y), cv::Size(r, r), 270, 0, 90, color, thickness);
+        cv::ellipse(frame, br, cv::Size(r, r), 0, 0, 90, color, thickness);
+        cv::ellipse(frame, cv::Point(tl.x, br.y), cv::Size(r, r), 90, 0, 90, color, thickness);
+        cv::line(frame, cv::Point(tl.x, rect.y), cv::Point(br.x, rect.y), color, thickness);
+        cv::line(frame, cv::Point(tl.x, rect.y + rect.height), cv::Point(br.x, rect.y + rect.height), color, thickness);
+        cv::line(frame, cv::Point(rect.x, tl.y), cv::Point(rect.x, br.y), color, thickness);
+        cv::line(frame, cv::Point(rect.x + rect.width, tl.y), cv::Point(rect.x + rect.width, br.y), color, thickness);
     }
 }
 
