@@ -75,54 +75,91 @@ std::vector<float> AudioPlayer::synthPiano(int pitch, double duration,
 
     double vel_factor = velocity / 127.0;
     double vel_curve = std::pow(vel_factor, 1.5);
-    int max_harmonics = static_cast<int>(4 + vel_factor * 4);
+    int max_harmonics = static_cast<int>(6 + vel_factor * 6);  // 6~12 泛音
 
-    double attack = 0.005;
-    double decay_rate = 3.0;
-    double detune = 1.001;
+    // ---- 真钢琴包络：双段衰减 ----
+    // 阶段1：快速初衰减（琴槌冲击能量的快速消散）
+    // 阶段2：慢速长尾（弦的持续振动）
+    double attack = 0.003;           // 3ms 极短起音
+    double fast_decay = 8.0;         // 初衰减速率（快）
+    double fast_end = 0.08;          // 初衰减持续 80ms
+    double slow_decay = 0.8;         // 长尾衰减速率（慢）
+    double sustain_level = 0.35;     // 初衰减结束后的持续电平
 
-    // 攻击瞬态：3ms 噪声冲击
-    int burst_samples = static_cast<int>(0.003 * sample_rate);
-    auto burst = generateNoiseBurst(burst_samples, 0.15 * vel_curve, 50.0);
+    // 低音弦更长、衰减更慢；高音弦更短、衰减更快
+    double pitch_factor = std::max(0.5, std::min(2.0, freq / 261.6));  // 相对 C4
+    slow_decay *= pitch_factor;
+    fast_decay *= pitch_factor;
+
+    // ---- 三弦模拟（3 根弦微失谐）----
+    double detunes[3] = {0.9994, 1.0, 1.0006};  // 中弦准确，左右弦微偏
+    double detune_amps[3] = {0.85, 1.0, 0.85};  // 中弦稍响
+
+    // ---- 攻击瞬态：击弦噪声 ----
+    int burst_samples = static_cast<int>(0.004 * sample_rate);
+    auto burst = generateNoiseBurst(burst_samples, 0.12 * vel_curve, 60.0);
+    // 将噪声限制在基频附近（模拟锤头击弦的频谱特征）
     for (int i = 0; i < burst_samples && i < num_samples; ++i) {
-        samples[i] = burst[i];
+        double t = static_cast<double>(i) / sample_rate;
+        // 用基频调制噪声，使其集中在低频
+        double mod = 0.5 + 0.5 * std::sin(2.0 * M_PI * freq * 0.5 * t);
+        samples[i] = burst[i] * mod;
     }
+
+    // ---- 琴体共振：基频的二次谐波附近有一个共振峰 ----
+    double body_res_freq = freq * 2.01;  // 略高于二次谐波
+    double body_res_amp = 0.08;
 
     for (int i = 0; i < num_samples; ++i) {
         double t = static_cast<double>(i) / sample_rate;
 
-        // 包络：微过冲曲线起音 + 指数衰减
+        // 双段衰减包络
         double envelope;
         if (t < attack) {
             double x = t / attack;
-            envelope = x * (2.0 - x);  // 微过冲
+            envelope = x * (2.0 - x);  // 微过冲起音
+        } else if (t < attack + fast_end) {
+            // 快速初衰减：从 1.0 降到 sustain_level
+            double progress = (t - attack) / fast_end;
+            envelope = sustain_level + (1.0 - sustain_level) * std::exp(-fast_decay * progress);
         } else {
-            envelope = std::exp(-decay_rate * (t - attack));
+            // 慢速长尾
+            double dt = t - attack - fast_end;
+            envelope = sustain_level * std::exp(-slow_decay * dt);
         }
-        double tail = 0.05;
+        // 尾部平滑释音
+        double tail = 0.08;
         if (t > duration - tail) {
             double fade = (duration - t) / tail;
-            envelope *= fade;
+            envelope *= fade * fade;
         }
 
+        // 三弦叠加
         double sample = 0.0;
-        for (int h = 1; h <= max_harmonics; ++h) {
-            double stretch = 1.0 + 0.0002 * h * h;
-            double harmonic_freq = freq * h * stretch;
+        for (int s = 0; s < 3; ++s) {
+            double string_sample = 0.0;
+            for (int h = 1; h <= max_harmonics; ++h) {
+                // 钢琴弦非整数泛音（拉伸调谐，低音更明显）
+                double inharmonicity = 1.0 + 0.00015 * h * h * (1.0 + 2.0 / pitch_factor);
+                double harmonic_freq = freq * h * inharmonicity * detunes[s];
 
-            // 力度影响亮度：高力度=浅衰减，低力度=深衰减
-            double bright_rolloff = 1.0 / std::pow(h, 1.2);
-            double soft_rolloff = 1.0 / std::pow(h, 2.0);
-            double amp = vel_factor * bright_rolloff + (1.0 - vel_factor) * soft_rolloff;
+                // 力度影响亮度
+                double bright = 1.0 / std::pow(h, 1.1);
+                double soft = 1.0 / std::pow(h, 2.0);
+                double amp = vel_factor * bright + (1.0 - vel_factor) * soft;
 
-            // 高频时间衰减
-            double h_decay = std::exp(-0.4 * h * t);
+                // 高频时间衰减（高泛音衰减更快）
+                double h_decay = std::exp(-0.3 * h * t);
 
-            sample += amp * h_decay * std::sin(2.0 * M_PI * harmonic_freq * t);
-            sample += amp * 0.3 * h_decay * std::sin(2.0 * M_PI * harmonic_freq * detune * t);
+                string_sample += amp * h_decay * std::sin(2.0 * M_PI * harmonic_freq * t);
+            }
+            sample += detune_amps[s] * string_sample;
         }
 
-        samples[i] += static_cast<float>(envelope * 0.25 * vel_curve * sample);
+        // 琴体共振
+        sample += body_res_amp * std::sin(2.0 * M_PI * body_res_freq * t) * envelope;
+
+        samples[i] += static_cast<float>(envelope * 0.18 * vel_curve * sample);
     }
 
     return samples;
@@ -315,47 +352,79 @@ std::vector<float> AudioPlayer::synthSoftPiano(int pitch, double duration,
 
     double vel_factor = velocity / 127.0;
     double vel_curve = std::pow(vel_factor, 1.5);
-    int max_harmonics = static_cast<int>(2 + vel_factor * 2);
+    int max_harmonics = static_cast<int>(4 + vel_factor * 4);  // 4~8 泛音
 
-    double attack = 0.015;
-    double decay_rate = 2.5;
-    double detune = 1.002;
+    // ---- 柔和钢琴包络：更慢的双段衰减 ----
+    double attack = 0.012;
+    double fast_decay = 5.0;
+    double fast_end = 0.12;
+    double slow_decay = 0.5;
+    double sustain_level = 0.40;     // 柔和钢琴持续电平更高
 
-    // 攻击瞬态：5ms 柔和噪声
-    int burst_samples = static_cast<int>(0.005 * sample_rate);
-    auto burst = generateNoiseBurst(burst_samples, 0.08 * vel_curve, 40.0);
+    double pitch_factor = std::max(0.5, std::min(2.0, freq / 261.6));
+    slow_decay *= pitch_factor;
+    fast_decay *= pitch_factor;
+
+    // 三弦模拟（失谐更小，更温暖）
+    double detunes[3] = {0.9997, 1.0, 1.0003};
+    double detune_amps[3] = {0.9, 1.0, 0.9};
+
+    // 柔和噪声冲击
+    int burst_samples = static_cast<int>(0.006 * sample_rate);
+    auto burst = generateNoiseBurst(burst_samples, 0.06 * vel_curve, 35.0);
     for (int i = 0; i < burst_samples && i < num_samples; ++i) {
-        samples[i] = burst[i];
+        double t = static_cast<double>(i) / sample_rate;
+        double mod = 0.5 + 0.5 * std::sin(2.0 * M_PI * freq * 0.3 * t);
+        samples[i] = burst[i] * mod;
     }
+
+    // 琴体共振
+    double body_res_freq = freq * 2.005;
+    double body_res_amp = 0.05;
 
     for (int i = 0; i < num_samples; ++i) {
         double t = static_cast<double>(i) / sample_rate;
 
+        // 双段衰减
         double envelope;
         if (t < attack) {
             double x = t / attack;
-            envelope = x * x;
+            envelope = x * x;  // 二次曲线，更柔和
+        } else if (t < attack + fast_end) {
+            double progress = (t - attack) / fast_end;
+            envelope = sustain_level + (1.0 - sustain_level) * std::exp(-fast_decay * progress);
         } else {
-            envelope = std::exp(-decay_rate * (t - attack));
+            double dt = t - attack - fast_end;
+            envelope = sustain_level * std::exp(-slow_decay * dt);
         }
-        double tail = 0.06;
+        double tail = 0.1;
         if (t > duration - tail) {
             double fade = (duration - t) / tail;
-            envelope *= fade;
+            envelope *= fade * fade;
         }
 
+        // 三弦叠加
         double sample = 0.0;
-        for (int h = 1; h <= max_harmonics; ++h) {
-            double stretch = 1.0 + 0.0002 * h * h;
-            double harmonic_freq = freq * h * stretch;
-            double amp = 1.0 / std::pow(h, 1.5);
-            double h_decay = std::exp(-0.5 * h * t);
+        for (int s = 0; s < 3; ++s) {
+            double string_sample = 0.0;
+            for (int h = 1; h <= max_harmonics; ++h) {
+                double inharmonicity = 1.0 + 0.00012 * h * h * (1.0 + 1.5 / pitch_factor);
+                double harmonic_freq = freq * h * inharmonicity * detunes[s];
 
-            sample += amp * h_decay * std::sin(2.0 * M_PI * harmonic_freq * t);
-            sample += amp * 0.4 * h_decay * std::sin(2.0 * M_PI * harmonic_freq * detune * t);
+                // 柔和钢琴：更深的衰减曲线，更温暖的音色
+                double warm = 1.0 / std::pow(h, 1.4);
+                double softer = 1.0 / std::pow(h, 2.2);
+                double amp = vel_factor * warm + (1.0 - vel_factor) * softer;
+
+                double h_decay = std::exp(-0.4 * h * t);
+                string_sample += amp * h_decay * std::sin(2.0 * M_PI * harmonic_freq * t);
+            }
+            sample += detune_amps[s] * string_sample;
         }
 
-        samples[i] += static_cast<float>(envelope * 0.20 * vel_curve * sample);
+        sample += body_res_amp * std::sin(2.0 * M_PI * body_res_freq * t) * envelope;
+
+        samples[i] += static_cast<float>(envelope * 0.16 * vel_curve * sample);
     }
 
     return samples;
@@ -569,8 +638,8 @@ void AudioPlayer::playComposition(const std::vector<TimedNote>& notes,
         s *= norm_scale;
     }
 
-    // 施加混响
-    buffer = applyReverb(buffer, 0.25f, 0.7f, sample_rate);
+    // 施加混响（音乐厅级别）
+    buffer = applyReverb(buffer, 0.30f, 0.8f, sample_rate);
 
     // 淡入淡出
     int fade_in = sample_rate / 20;    // 50ms
