@@ -43,8 +43,8 @@
 | emotion_recognizer | ~90% | onnxruntime API + HSEmotion 预处理 |
 | emotion_mapper | ~95% | 简单映射表 + 和弦进行配置 |
 | music_generator | ~95% | 和弦进行+旋律+伴奏系统重写 |
-| audio_player | ~90% | 6种音色合成 + 混合播放 |
-| overlay_renderer | ~95% | UI 布局和绘制 |
+| audio_player | ~90% | 6种音色合成 + 混合播放 + 混响 + 三弦模拟 |
+| overlay_renderer | ~95% | 毛玻璃 UI + 按钮 + 曲线图 + 抗锯齿 |
 | main.cpp | ~85% | 主循环框架由AI生成 |
 | CMakeLists.txt | ~90% | 构建配置 |
 | 文档 | ~80% | 框架由AI生成，实际数据由人工填写 |
@@ -90,3 +90,31 @@ AI: 基于dlib 68关键点，可以从以下特征进行情绪分类：
   6. 实现时间线混合播放（TimedNote 叠加 + 归一化防削波）
 - **人工修改**：待 VM 编译测试后根据试听效果微调
 - **最终结果**：待验证
+
+---
+
+#### 2026-05-05：VM 网络修复 + 音频/旋律/UI 全面升级
+
+- **AI 辅助内容**：
+  1. VM Git 代理排查：发现 VirtualBox NAT `10.0.2.2` 不可达，改用宿主机 WLAN IP（`192.168.1.6:7897`）
+  2. Windows 防火墙放行 7897 端口的 netsh 命令
+  3. 音频音色 3 轮迭代改进：
+     - Schroeder 混响（4 comb + 2 allpass 滤波器）
+     - 噪声脉冲模拟钢琴击弦瞬态
+     - 双段衰减包络（快速初始衰减 + 慢速尾音）
+     - 三弦模拟（3 个微调振荡器，detune ±0.06%）
+     - 非谐性模型（stretched tuning）
+  4. 旋律生成改进：
+     - `phraseArc()` 乐句轮廓函数（62.5% 处高潮）
+     - 邻音（neighbor tone）增加流动性
+     - 5 种节奏型随机选择
+     - 偶尔大跳 + 反向补偿
+  5. UI 现代化：
+     - 毛玻璃面板（GaussianBlur + addWeighted 半透明叠加）
+     - 圆角矩形 + 发光文字 + 面板内阴影
+     - 屏幕按钮（QUIT/PLAY/AUTO）+ 鼠标回调交互
+     - 情绪历史曲线图（200 帧滚动窗口，7 色折线）
+     - 全面抗锯齿（所有绘图调用加 `cv::LINE_AA`）
+  6. 项目从 C 盘迁移到 D 盘（`D:\documentttt\emotion-music-generator\`）
+- **人工修改**：根据试听反馈多轮调整音频参数
+- **最终结果**：音色接近真钢琴，UI 现代化完成，支持按钮交互

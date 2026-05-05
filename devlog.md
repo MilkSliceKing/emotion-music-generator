@@ -765,7 +765,100 @@ dc66294 docs: 更新开发日志(4/29)
 
 #### 五、待办
 
-- [ ] VM 拉取本次更新（需配置 VM 网络或手动同步）
-- [ ] VM 上编译测试
+- [x] VM 拉取本次更新（5/5 已通过 WLAN IP 代理解决）
+- [x] VM 上编译测试（修复重复定义错误）
 - [ ] 摄像头实时模式完整功能测试
-- [ ] 根据试听效果进一步微调伴奏参数
+- [x] 根据试听效果进一步微调伴奏参数
+
+---
+
+## 日期：2026-05-05
+
+### 任务：VM 网络修复 + 音频/旋律/UI 全面升级 + 项目迁移
+
+#### 一、VM Git 代理修复
+
+VM (VirtualBox NAT) 无法通过 `10.0.2.2:7897` 访问 GitHub（ping 全丢包）。经过排查，发现需要使用宿主机的**实际 WLAN IP**（如 `192.168.1.6`）而非 NAT 网关地址。
+
+**解决方案**：
+1. Gitee（国内）不需要代理：`git config --global --unset http.proxy`
+2. GitHub 需要 WLAN IP 代理：`git config http.proxy http://192.168.1.6:7897`
+3. Windows 防火墙需放行 7897 端口：`netsh advfirewall firewall add rule name="Allow Proxy 7897" dir=in action=allow protocol=TCP localport=7897`
+4. 代理软件需开启"允许局域网连接"
+
+**注意**：WLAN IP 换网络后会变，需重新 `ipconfig` 查询并更新 git config。
+
+#### 二、编译错误修复
+
+VM 上 git pull 后编译失败，发现两个问题：
+1. `audio_player.cpp` 中 `synthSoftPiano()` 存在两份定义（旧版 113-168 行 + 新版 360-413 行），删除旧版
+2. 旧版 `playComposition(Composition&)` 仍残留（使用已废弃的 `Composition` 结构体），删除
+
+#### 三、音频音色升级（3 轮迭代）
+
+**第 1 轮：基础改进**
+- 添加 Schroeder 混响（4 comb + 2 allpass 滤波器）
+- 添加噪声脉冲模拟钢琴击弦瞬态
+- 力度非线性响应 `pow(vel_factor, 1.5)`
+
+**第 2 轮：双段衰减 + 三弦模拟**
+- 双段衰减包络：快速初始衰减 + 慢速尾音（模拟真实钢琴弦振动特征）
+  - Attack：二次曲线过冲（模拟锤击）
+  - Fast decay：`exp(-4.0 * progress)` 快速回落
+  - Slow decay：`exp(-1.5 * dt)` 悠长尾音
+- 三弦模拟：每个音符 3 个微调振荡器（`detunes = {0.9994, 1.0, 1.0006}`），模拟真实钢琴一根音三根弦的拍频效应
+- 钢琴琴体共鸣：低频泛音增强
+- 非谐性模型（stretched tuning）：高音泛音频率微偏
+
+**第 3 轮：音色进一步优化**
+- 调整泛音衰减曲线，使高次泛音衰减更快
+- 混响参数微调（`wet=0.30, room=0.8`）
+
+#### 四、旋律生成改进
+
+- **旋律轮廓**：`phraseArc()` 函数实现乐句内起伏，62.5% 处达到高潮后回落
+- **非和弦音**：15% 概率插入邻音（neighbor tone），增加旋律流动性
+- **节奏变化**：5 种节奏型随机选择（全音符、四分+八分、八分八分、四分+休止、附点）
+- **力度变化**：拍级别力度调整 + 整体轮廓加权
+- **偶尔大跳**：强拍 20% 概率六度以上跳进，跳进后反向补偿
+
+#### 五、UI 现代化升级
+
+**毛玻璃/磨砂风格**：
+- `drawFrostedRect()` 方法：对面板区域做 GaussianBlur + addWeighted 半透明叠加
+- 圆角矩形面板（`drawRoundRect()`）
+- 发光文字效果（多层半透明文字叠加模拟光晕）
+- 面板内阴影效果
+
+**屏幕交互按钮**：
+- QUIT（红色胶囊）、PLAY（绿色胶囊）、AUTO（情绪色胶囊）
+- `cv::setMouseCallback()` 鼠标回调
+- Hover 悬停高亮 + 点击状态切换
+
+**情绪历史曲线图**：
+- 维护最近 200 帧的 `std::deque<Emotion>` 滚动窗口
+- 7 种情绪各一条彩色折线（`cv::LINE_AA` 抗锯齿）
+- 当前情绪区域半透明填充高亮
+
+**全面抗锯齿**：
+- 所有 `cv::putText`、`cv::line`、`cv::rectangle`、`cv::ellipse`、`cv::circle` 调用均添加 `cv::LINE_AA` 参数
+- 填充多边形也使用 `cv::LINE_AA`
+
+#### 六、项目迁移
+
+项目从 `C:\Users\lzx\emotion-music-generator\` 迁移至 `D:\documentttt\emotion-music-generator\`（C 盘空间不足）。
+
+#### 七、修改文件汇总
+
+| 文件 | 改动 | 说明 |
+|------|------|------|
+| `src/audio/audio_player.h` | +5 行 | 新增 reverb/noise 声明 |
+| `src/audio/audio_player.cpp` | +150 -30 行 | 双段衰减+三弦+混响+噪声 |
+| `src/generator/music_generator.cpp` | +60 -20 行 | 轮廓+非和弦音+节奏变化 |
+| `src/ui/overlay_renderer.h` | +20 行 | 按钮+曲线图+回调 |
+| `src/ui/overlay_renderer.cpp` | +200 -80 行 | 毛玻璃+按钮+曲线+抗锯齿 |
+| `src/main.cpp` | +20 -5 行 | 鼠标回调+情绪历史+按钮处理 |
+| `devlog.md` | 更新 | 本文件 |
+| `docs/conversation_log.md` | 更新 | 对话记录 |
+| `docs/ai_usage.md` | 更新 | AI 使用记录 |
+| **总计** | **+455 -135 行** | |
