@@ -72,6 +72,32 @@ target_link_libraries(emotion_music_generator
     pthread
 )
 
+# ---------- 表情识别测试工具 ----------
+
+add_executable(emotion_test
+    src/emotion_test.cpp
+    src/detector/face_detector.cpp
+    src/detector/emotion_recognizer.cpp
+)
+
+target_include_directories(emotion_test PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+    ${OpenCV_INCLUDE_DIRS}
+    ${DLIB_INCLUDE_DIR}
+    ${ONNXRUNTIME_INCLUDE_DIR}
+)
+
+target_link_libraries(emotion_test
+    ${OpenCV_LIBS}
+    ${DLIB_LIBRARY}
+    ${BLAS_LIBRARIES}
+    ${LAPACK_LIBRARIES}
+    ${ONNXRUNTIME_LIBRARY}
+    pthread
+)
+
+target_compile_options(emotion_test PRIVATE -Wall -Wextra -Wpedantic)
+
 # ---------- 编译选项 ----------
 
 target_compile_options(emotion_music_generator PRIVATE -Wall -Wextra -Wpedantic)
