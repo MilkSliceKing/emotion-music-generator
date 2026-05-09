@@ -862,3 +862,69 @@ VM 上 git pull 后编译失败，发现两个问题：
 | `docs/conversation_log.md` | 更新 | 对话记录 |
 | `docs/ai_usage.md` | 更新 | AI 使用记录 |
 | **总计** | **+455 -135 行** | |
+
+---
+
+## 日期：2026-05-08 ~ 05-09
+
+### 任务：表情识别测试工具 + VM 代理 TLS 问题修复
+
+#### 一、表情识别测试工具 (emotion_test)
+
+**动机**：手动测试表情图片，评估模型识别准确性，找出容易混淆的情绪对。
+
+**方案**：路线 B — 图片文件夹批量测试 + CSV 输出。
+
+图片按子文件夹组织，文件夹名即真实标签（angry/、happy/ 等），程序遍历每张图片做人脸检测 + 情绪推理，记录结果。
+
+**新建文件**：
+
+| 文件 | 说明 |
+|------|------|
+| `src/emotion_test.cpp` | 测试工具主程序，复用 FaceDetector + EmotionRecognizer |
+
+**修改文件**：
+
+| 文件 | 说明 |
+|------|------|
+| `CMakeLists.txt` | 新增 `emotion_test` 可执行目标 |
+
+**CSV 输出**：每行包含文件名、真实标签、预测标签、是否正确、7 类概率。末尾附汇总统计（混淆矩阵 + 各类 accuracy）。
+
+**首次测试结果**（21 张图片）：
+
+| 情绪 | 准确率 | 备注 |
+|------|--------|------|
+| Happy | 100% | 稳定 |
+| Sad | 100% | 稳定 |
+| Neutral | 100% | 稳定 |
+| Fear | 100% | 样本少（2 张） |
+| Angry | 66.7% | 与 Disgust 互相混淆 |
+| Disgust | 66.7% | 与 Angry 互相混淆 |
+| Surprise | 66.7% | 1 张被误判为 Fear |
+
+**总体准确率**：85.0%（20 张中 17 张正确）
+
+**发现**：
+- Angry ↔ Disgust 容易混淆（面部肌肉动作相似）
+- Surprise → Fear 有误判（都有瞪眼张嘴特征）
+- 样本量太小，需要更多测试图片才能得出可靠结论
+
+#### 二、VM Git 代理 TLS 问题
+
+**症状**：`git pull` 报 `gnutls_handshake() failed: The TLS connection was non-properly terminated.`
+
+**原因**：WLAN 断开后改走以太网，IP 变为 `10.38.70.118`。VM 上通过 `git config http.proxy` 设置的代理能 ping 通，但 GnuTLS 握手失败。
+
+**解决方法**：改用环境变量设置代理（不用 git config）：
+```bash
+export http_proxy=http://10.38.70.118:7897
+export https_proxy=http://10.38.70.118:7897
+git pull
+```
+
+#### 三、待办
+
+- [ ] 积累更多测试图片，完善混淆矩阵
+- [ ] 根据测试结果改进主程序的识别逻辑（Angry/Disgust 混淆处理）
+- [ ] 摄像头实时模式完整功能测试

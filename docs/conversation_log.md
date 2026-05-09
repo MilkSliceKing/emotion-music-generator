@@ -765,3 +765,136 @@ git config https.proxy http://192.168.1.6:7897
     ↓ （当前版本）
 旋律轮廓 + 非和弦音 + 节奏变化 + 毛玻璃 UI + 屏幕按钮 + 情绪曲线图
 ```
+
+---
+
+## 会话日期：2026-05-08 ~ 05-09
+
+### 主题：表情识别测试工具 + VM 代理 TLS 问题修复
+
+---
+
+### Q49: 你还记得我的项目吗？
+
+**用户**：俺的项目是什么你还记得吗
+
+**AI**：从记忆文件中读取项目状态，回顾了情绪音乐生成器项目的全部细节。
+
+---
+
+### Q50: 做一个表情识别测试工具
+
+**用户**：我想做一个和他相关的测试程序，目的是做表情手动选择这个表情识别的结果是什么以提高主程序的识别准确性
+
+**AI**：分析可行性，提出两条路线：
+- 路线 A：标准数据集批量测试（统计混淆矩阵）
+- 路线 B：手动交互式测试工具（灵活对比）
+
+**用户选择**：路线 B
+
+---
+
+### Q51: 测试工具方案细化
+
+**AI 提问**：数据源和输出格式偏好？
+
+**用户选择**：图片文件夹批量测试 + CSV 文件输出
+
+---
+
+### Q52: 实现 emotion_test 工具
+
+**AI 操作**：
+
+1. 探索主项目代码，了解 API 接口：
+   - `FaceDetector::detectFaces()` → `std::vector<FaceRect>`
+   - `EmotionRecognizer::recognizeFromImage()` → `Emotion` + `getConfidences()`
+   - `emotionToString(Emotion)` → 字符串
+
+2. 新建 `src/emotion_test.cpp`（~200 行）：
+   - 遍历测试图片目录（子文件夹名 = 真实标签）
+   - 人脸检测 → 取最大人脸 → 情绪推理
+   - 输出 CSV（每行：文件名、真实标签、预测标签、是否正确、7 类概率）
+   - 终端打印混淆矩阵 + 各类准确率
+
+3. 修改 `CMakeLists.txt`：新增 `emotion_test` 可执行目标
+
+4. 提交并推送到 GitHub
+
+---
+
+### Q53: VM 编译运行
+
+**用户在 VM 上**：
+```bash
+mkdir -p test_images/{angry,disgust,fear,happy,sad,surprised,neutral}
+```
+
+从 `build/` 目录运行报错（模型路径找不到），改为从项目根目录运行。
+
+---
+
+### Q54: VM Git 代理又挂了
+
+**用户**：`git pull` 报 `gnutls_handshake() failed: The TLS connection was non-properly terminated.`
+
+**排查**：
+1. Windows WLAN 已断开，改走以太网（IP `10.38.70.118`）
+2. Windows 端 curl 验证代理正常（HTTP 200）
+3. VM 能 ping 通宿主机
+4. 但 `git config http.proxy` 通过代理时 GnuTLS 握手失败
+
+**解决方案**：改用环境变量设代理（不用 git config）：
+```bash
+export http_proxy=http://10.38.70.118:7897
+export https_proxy=http://10.38.70.118:7897
+git pull
+```
+
+**用户要求**：记住这个错误，下次遇到直接提示解决方案。
+
+---
+
+### Q55: 测试工具首次运行结果
+
+**用户**：往 test_images 各文件夹放了 3 张图片，运行测试。
+
+**结果**：
+```
+总图片数:   21
+检测到人脸: 20
+预测正确:   17
+总体准确率: 85.0%
+
+Angry       2/3  66.7%
+Disgust     2/3  66.7%
+Fear        2/2  100.0%
+Happy       3/3  100.0%
+Sad         3/3  100.0%
+Surprise    2/3  66.7%
+Neutral     3/3  100.0%
+```
+
+**混淆矩阵**：
+- Angry ↔ Disgust 互相错判（面部肌肉动作相似）
+- Surprise → Fear 错了 1 张（都有瞪眼张嘴特征）
+
+---
+
+### Q56: 更新 GitHub 文档和记忆
+
+**用户**：帮我同步 github 的聊天记录 devlog 和你的记忆吧 明天再说
+
+**AI**：更新 conversation_log.md、devlog.md，推送到 GitHub，更新记忆。
+
+---
+
+## 总结（截至 2026-05-09）
+
+| 项目 | 详情 |
+|------|------|
+| 总开发时间 | 2026-04-11 ~ 05-09（约 24 小时） |
+| AI 工具 | Claude Code (GLM 5.1) |
+| 当前状态 | main 分支：完整流水线 + 毛玻璃 UI + 表情识别测试工具 |
+| 测试工具 | emotion_test：图片批量测试，85% 准确率（21 张样本） |
+| VM 代理 | git config 代理 TLS 失败时改用环境变量 `export http_proxy` |
