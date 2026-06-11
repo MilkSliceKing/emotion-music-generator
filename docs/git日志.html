@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Git Log Export - emotion-music-generator</title>
+<style>
+body { font-family: "Microsoft YaHei", "Consolas", monospace; font-size: 11px; margin: 30px; }
+h1 { font-size: 18px; text-align: center; }
+p.sub { text-align: center; color: #666; font-size: 12px; }
+pre { line-height: 1.5; }
+</style>
+</head>
+<body>
+<h1>emotion-music-generator Git 提交记录</h1>
+<p class="sub">导出时间: 2026-06-10 | 共 49 次提交</p>
+<hr>
+<pre>
+<span style="color:#333">* ec9151f 2026-05-16 docs: 添加项目应用场景文档</span>
+<span style="color:#333">* 9c57847 2026-05-09 docs: 更新开发日志和对话记录(5/9)</span>
+<span style="color:#333">* 26ddce4 2026-05-09 feat: 添加表情识别测试工具 emotion_test</span>
+<span style="color:#333">* 2905128 2026-05-05 docs: 更新开发日志和对话记录(5/5)</span>
+<span style="color:#333">* a721e26 2026-05-05 feat: 屏幕按钮+情绪曲线图+全面抗锯齿</span>
+<span style="color:#333">* d9d49c6 2026-05-05 fix: 修复drawRoundRect在填充模式下cv::line崩溃</span>
+<span style="color:#333">* f08a874 2026-05-05 feat: UI 毛玻璃现代化改造</span>
+<span style="color:#333">* 1cd15aa 2026-05-05 feat: 真钢琴音色模拟——双段衰减+三弦模拟+琴体共振</span>
+<span style="color:#333">* 90b33e9 2026-05-05 feat: 大幅改善音色和旋律听感</span>
+<span style="color:#333">* 91cacc4 2026-05-05 fix: 删除残留的旧版synthSoftPiano和playComposition(Composition&amp;)，修复编译错误</span>
+<span style="color:#333">* 8736d88 2026-05-01 feat: 和弦进行+左手伴奏+乐句结构重写，柔和钢琴音色，混合播放</span>
+<span style="color:#333">* dc66294 2026-04-29 docs: 更新开发日志(4/29) — 和弦进行+旋律+伴奏重写</span>
+<span style="color:#333">* 07cccb8 2026-04-29 feat: 新增柔和钢琴音色(synthSoftPiano)，改善伴奏听感</span>
+<span style="color:#333">* d577caf 2026-04-29 feat: 和弦进行+旋律+伴奏重写，让音乐听起来像真正的轻音乐钢琴曲</span>
+<span style="color:#333">* 7db457c 2026-04-26 fix: BGR→RGB颜色转换修复 + 更新开发日志(4/26)</span>
+<span style="color:#333">* 44efcd0 2026-04-26 feat: 多音色乐器模拟，不同情绪使用不同音色</span>
+<span style="color:#333">* 496f91a 2026-04-26 feat: 改善音色和旋律生成</span>
+<span style="color:#333">* 8e06a7b 2026-04-21 docs: 更新开发日志和对话记录(4/21 UI优化完成)</span>
+<span style="color:#333">* 0bd73ac 2026-04-21 feat: UI 优化 — 半透明面板 + 置信度条形图 + 音频均衡器动画 + 四角人脸框</span>
+<span style="color:#333">*   cdfc445 2026-04-21 merge: 合并 dev/opencv-dnn 到 main（onnxruntime + HSEmotion 纯 C++ 推理版）</span>
+<span style="color:#666">|\  </span>
+<span style="color:#666">| * 76cc256 2026-04-21 chore: 移除 debug 调试输出</span>
+<span style="color:#666">| * 29de11c 2026-04-21 feat: 将情绪推理从 OpenCV DNN 切换到 onnxruntime</span>
+<span style="color:#666">| * 927bc65 2026-04-21 docs: 更新开发日志和对话记录(4/21 FERPlus→HSEmotion模型替换)</span>
+<span style="color:#666">| * 95752a0 2026-04-21 feat: 替换 FERPlus 为 HSEmotion EfficientNet-B0 模型</span>
+<span style="color:#666">| * 57d6e7f 2026-04-21 debug: 保存人脸裁剪图用于诊断预处理</span>
+<span style="color:#666">| * 727e052 2026-04-21 debug: 添加 ONNX 推理原始输出诊断</span>
+<span style="color:#666">| * 35e921a 2026-04-16 docs: 更新开发日志(4/16 性能优化与架构演进)</span>
+<span style="color:#666">| * 128bcc7 2026-04-16 feat: 用 OpenCV DNN + ONNX 替代 DeepFace Python 桥接</span>
+<span style="color:#333">* | 357f38d 2026-04-16 docs: 更新开发日志(4/16 性能优化与架构演进)</span>
+<span style="color:#666">|/  </span>
+<span style="color:#333">* da3a118 2026-04-16 perf: 改用 pipe+fork 常驻 daemon 替代每次 popen 调用 DeepFace</span>
+<span style="color:#333">* 537f1df 2026-04-15 update devlog and conversation log with audio fix record (Q23)</span>
+<span style="color:#333">* e4c8eff 2026-04-15 switch audio player from PortAudio to paplay/aplay for VM compatibility</span>
+<span style="color:#333">* f20b02d 2026-04-14 refactor: 用 WAV + paplay 替代 PortAudio 播放音频</span>
+<span style="color:#333">* 1c8e6cb 2026-04-14 debug: 添加音频播放诊断输出</span>
+<span style="color:#333">* 1dc82b7 2026-04-14 fix: 图片模式立即播放 + 键盘处理顺序修复 + 诊断输出</span>
+<span style="color:#333">* dd86935 2026-04-13 docs: 更新开发日志和对话记录(4/13情绪识别攻关)</span>
+<span style="color:#333">* e0e0514 2026-04-13 feat: 情绪识别改用DeepFace Python桥接，人脸检测恢复dlib</span>
+<span style="color:#333">* 8354d78 2026-04-13 fix: 测试脚本改用Haar级联检测人脸，跳过有问题的SSD模型</span>
+<span style="color:#333">* a36b995 2026-04-13 chore: 添加情绪识别模型预处理测试脚本</span>
+<span style="color:#333">* 4a41214 2026-04-13 fix: 降低人脸检测置信度阈值到0.3，提高侧脸检测率</span>
+<span style="color:#333">* bf8fa74 2026-04-13 fix: 改回FER+ ONNX模型，修正预处理参数</span>
+<span style="color:#333">* fad4a62 2026-04-13 chore: 添加FER情绪识别模型prototxt文件</span>
+<span style="color:#333">* c0801ab 2026-04-13 chore: 添加SSD人脸检测模型prototxt文件</span>
+<span style="color:#333">* a550583 2026-04-13 feat: 升级人脸检测和情绪识别模型</span>
+<span style="color:#333">* fe49082 2026-04-13 fix: 删除多余的cap&gt;&gt;frame导致图片模式读到空帧</span>
+<span style="color:#333">* 91d1c91 2026-04-12 feat: 支持图片/视频文件输入，不依赖摄像头</span>
+<span style="color:#333">* 43105fb 2026-04-12 fix: 补全EMOTION_LABELS类名前缀</span>
+<span style="color:#333">* 79245a9 2026-04-12 fix: 修复EMOTION_LABELS访问权限和未使用参数警告</span>
+<span style="color:#333">* c4fd0aa 2026-04-12 feat: 替换情绪识别为FER+深度学习模型</span>
+<span style="color:#333">* 96d33a1 2026-04-12 docs: 添加完整开发日志和AI对话记录</span>
+<span style="color:#333">* f85b547 2026-04-12 fix: 添加 BLAS/LAPACK 依赖解决链接错误</span>
+<span style="color:#333">* 4eac729 2026-04-12 feat: 完整项目骨架 - 面部检测+情绪识别+音乐生成+音频播放</span>
+<span style="color:#333">* 6bdbbf8 2026-04-12 Update devlog with emotion recognition and music generation plans</span>
+<span style="color:#333">*   67c2932 2026-04-11 merge remote main with local main</span>
+<span style="color:#666">|\  </span>
+<span style="color:#666">| * 089983a 2026-04-11 Update README with project details and description</span>
+<span style="color:#666">| * 411e18b 2026-04-09 Initial commit</span>
+<span style="color:#333">* 16a5e8d 2026-04-11 Add devlog:创建初代程序 —— 面部检测功能开发记录</span>
+<span style="color:#333">* a42e285 2026-04-11 Add project plan to README</span>
+<span style="color:#333">* b794ee9 2026-04-11 Initial commit: 添加项目计划和README</span>
+
+</pre>
+</body>
+</html>

@@ -14,12 +14,10 @@ detection:
   pyramid_upscales: 1
 
 emotion:
+  # 情绪识别 ONNX 模型路径
+  model_path: "models/emotion_detector/enet_b0_8_best_afew.onnx"
   # 情绪平滑窗口大小
   smoothing_window: 5
-  # 各特征的阈值
-  mouth_aspect_ratio_threshold: 0.5
-  eye_aspect_ratio_threshold: 0.3
-  eyebrow_height_threshold: 8.0
 
 music:
   default_num_notes: 8

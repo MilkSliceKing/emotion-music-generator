@@ -103,6 +103,6 @@ target_compile_options(emotion_test PRIVATE -Wall -Wextra -Wpedantic)
 target_compile_options(emotion_music_generator PRIVATE -Wall -Wextra -Wpedantic)
 
 if(CMAKE_BUILD_TYPE STREQUAL "Release")
-    target_compile_options(emotion_music_generator PRIVATE -O3)
-    message(STATUS "Release 模式: 启用 -O3 优化")
+    target_compile_options(emotion_music_generator PRIVATE -O3 -march=native)
+    message(STATUS "Release 模式: 启用 -O3 -march=native 优化")
 endif()

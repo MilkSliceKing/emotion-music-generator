@@ -2,6 +2,9 @@
 #include <iostream>
 #include <chrono>
 #include <deque>
+#include <fstream>
+#include <sstream>
+#include <map>
 
 #include "detector/face_detector.h"
 #include "detector/emotion_recognizer.h"
@@ -9,6 +12,36 @@
 #include "generator/music_generator.h"
 #include "audio/audio_player.h"
 #include "ui/overlay_renderer.h"
+
+// 简易 YAML 配置读取器（仅支持 key: value 格式）
+static std::map<std::string, std::string> loadConfig(const std::string& path) {
+    std::map<std::string, std::string> config;
+    std::ifstream file(path);
+    std::string line, section;
+    while (std::getline(file, line)) {
+        if (line.empty() || line[0] == '#') continue;
+        if (line.back() == ':' && line.find(' ') == std::string::npos) {
+            section = line.substr(0, line.size() - 1) + ".";
+            continue;
+        }
+        auto colon = line.find(':');
+        if (colon != std::string::npos) {
+            std::string key = line.substr(0, colon);
+            std::string val = line.substr(colon + 1);
+            auto trim = [](std::string& s) {
+                size_t start = s.find_first_not_of(" \t");
+                size_t end = s.find_last_not_of(" \t");
+                if (start == std::string::npos) { s = ""; return; }
+                s = s.substr(start, end - start + 1);
+                if (s.size() >= 2 && s.front() == '"' && s.back() == '"')
+                    s = s.substr(1, s.size() - 2);
+            };
+            trim(key); trim(val);
+            config[section + key] = val;
+        }
+    }
+    return config;
+}
 
 // 情绪平滑缓冲区大小
 static constexpr int SMOOTH_WINDOW = 5;
@@ -41,6 +74,11 @@ int main(int argc, char* argv[]) {
 
     std::string mode = argv[1];
     std::cout << "初始化中..." << std::endl;
+
+    // ---- 加载配置文件 ----
+    auto cfg = loadConfig("config/config.yaml");
+    std::string face_model_path = cfg.count("detection.model_path") ? cfg["detection.model_path"] : "models/shape_predictor_68_face_landmarks.dat";
+    std::string emotion_model_path = cfg.count("emotion.model_path") ? cfg["emotion.model_path"] : "models/emotion_detector/enet_b0_8_best_afew.onnx";
 
     // ---- 初始化输入源 ----
     cv::VideoCapture cap;
@@ -78,15 +116,15 @@ int main(int argc, char* argv[]) {
 
     // ---- 初始化人脸检测器 (dlib HOG) ----
     FaceDetector detector;
-    if (!detector.loadModel("models/shape_predictor_68_face_landmarks.dat")) {
-        std::cerr << "[错误] 人脸检测模型加载失败" << std::endl;
+    if (!detector.loadModel(face_model_path)) {
+        std::cerr << "[错误] 人脸检测模型加载失败: " << face_model_path << std::endl;
         return -1;
     }
 
     // ---- 初始化情绪识别 (onnxruntime, HSEmotion ONNX) ----
     EmotionRecognizer recognizer;
-    if (!recognizer.loadModel("models/emotion_detector/enet_b0_8_best_afew.onnx")) {
-        std::cerr << "[错误] 情绪识别模型加载失败" << std::endl;
+    if (!recognizer.loadModel(emotion_model_path)) {
+        std::cerr << "[错误] 情绪识别模型加载失败: " << emotion_model_path << std::endl;
         return -1;
     }
 
