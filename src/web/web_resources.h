@@ -25,52 +25,84 @@ h1{text-align:center;font-size:20px;color:#e94560;padding:12px 0}
 .conf-row .pct{width:42px;font-size:12px;margin-left:4px}
 .params{display:grid;grid-template-columns:1fr 1fr;gap:6px;font-size:13px}
 .params span:nth-child(odd){color:#aaa}
-.btn-row{display:flex;gap:10px;justify-content:center;flex-wrap:wrap}
-.btn{padding:10px 20px;border:none;border-radius:8px;font-size:14px;cursor:pointer;color:#fff;transition:opacity .2s}
-.btn:hover{opacity:.8}
+.btn-row{display:flex;gap:8px;justify-content:center;flex-wrap:wrap}
+.btn{padding:10px 18px;border:none;border-radius:8px;font-size:13px;cursor:pointer;color:#fff;transition:all .15s}
+.btn:hover{opacity:.85;transform:scale(1.03)}
+.btn:active{transform:scale(.97)}
 .btn-play{background:#e94560}
-.btn-auto{background:#0f3460}
-.btn-mode{background:#533483}
-.btn-pause{background:#e97f45}
+.btn-stop{background:#e97f45}
+.btn-auto-on{background:#2d8f4e}
+.btn-auto-off{background:#0f3460}
+.btn-mode-synth{background:#533483}
+.btn-mode-local{background:#8f2d5e}
 .status-line{text-align:center;font-size:12px;color:#888;margin-top:6px}
 canvas{width:100%;height:120px;border-radius:6px;background:#16213e}
+.tabs{display:flex;gap:4px;margin-bottom:8px}
+.tab{padding:6px 14px;border:1px solid #333;border-radius:6px;cursor:pointer;font-size:12px;color:#888}
+.tab.active{background:#1a1a2e;color:#eee;border-color:#e94560}
+.log-box{background:#111;border-radius:6px;padding:8px;font-size:11px;font-family:monospace;max-height:200px;overflow-y:auto;color:#aaa;white-space:pre-wrap}
+.summary{font-size:13px;line-height:1.6}
+.summary b{color:#e94560}
 </style>
 </head>
 <body>
 <div class="container">
 <h1>Emotion Music Remote</h1>
+
 <div class="card">
  <div class="stream-wrap"><img id="stream" src="/stream" alt="Live"></div>
 </div>
+
 <div class="card">
  <div class="emotion-big" id="emo">--</div>
  <div id="confs"></div>
 </div>
+
 <div class="card">
  <div class="params" id="params"></div>
 </div>
+
 <div class="card">
  <div class="btn-row">
-  <button class="btn btn-play" onclick="api('/api/play')">Play</button>
-  <button class="btn btn-pause" onclick="api('/api/pause')">Stop</button>
-  <button class="btn btn-auto" onclick="api('/api/auto')">Auto</button>
-  <button class="btn btn-mode" onclick="api('/api/mode')">Mode</button>
+  <button class="btn btn-play" id="btnPlay" onclick="doPlay()">Play</button>
+  <button class="btn btn-stop" onclick="api('/api/pause')">Stop</button>
+  <button class="btn btn-auto-on" id="btnAuto" onclick="api('/api/auto')">Auto: ON</button>
+  <button class="btn btn-mode-synth" id="btnMode" onclick="api('/api/mode')">Mode: Synth</button>
  </div>
+ <div class="status-line" id="status">Connecting...</div>
 </div>
+
 <div class="card">
- <h3 style="font-size:14px;margin-bottom:6px">Emotion Timeline</h3>
+ <h3 style="font-size:14px;margin-bottom:8px">Emotion Timeline</h3>
  <canvas id="tl" width="620" height="120"></canvas>
 </div>
-<div class="status-line" id="status">Connecting...</div>
+
+<div class="card">
+ <div class="tabs">
+  <div class="tab active" onclick="showTab(this,'tabLog')">Log</div>
+  <div class="tab" onclick="showTab(this,'tabSummary');loadSummary()">Daily Summary</div>
+  <div class="tab" onclick="showTab(this,'tabWeek');loadWeek()">Weekly</div>
+ </div>
+ <div id="tabLog"><div class="log-box" id="logBox">Loading...</div></div>
+ <div id="tabSummary" style="display:none"><div class="summary" id="summaryBox">Loading...</div></div>
+ <div id="tabWeek" style="display:none"><div class="summary" id="weekBox">Loading...</div></div>
 </div>
+</div>
+
 <script>
 var tlData=[];
 var emoColors={Angry:'#ff4444',Disgust:'#ff8800',Fear:'#cc44cc',Happy:'#ffee44',Sad:'#4488ff',Surprised:'#ff8844',Neutral:'#aaaaaa'};
+var curState={is_playing:false,music_enabled:true,mode:'synth'};
+
 function api(u){fetch(u,{method:'POST'}).catch(function(){})}
+function doPlay(){api('/api/play')}
+
 function update(){
  fetch('/api/status').then(function(r){return r.json()}).then(function(d){
+  curState=d;
   document.getElementById('emo').textContent=d.emotion;
   document.getElementById('emo').style.color=emoColors[d.emotion]||'#fff';
+
   var labels=['Angry','Disgust','Fear','Happy','Sad','Surprise','Neutral'];
   var colors=['#ff4444','#ff8800','#cc44cc','#ffee44','#4488ff','#ff8844','#aaaaaa'];
   var h='';
@@ -81,46 +113,126 @@ function update(){
     +'<span class="pct">'+p+'%</span></div>';
   }
   document.getElementById('confs').innerHTML=h;
+
   var mp=d.music_params||{};
   document.getElementById('params').innerHTML=
    '<span>Key</span><span>'+(mp.key||'-')+' '+(mp.scale||'-')+'</span>'
    +'<span>Tempo</span><span>'+(mp.tempo||'-')+' BPM</span>'
    +'<span>Mode</span><span>'+(d.mode||'-')+'</span>'
-   +'<span>FPS</span><span>'+(d.fps||'-')+'</span>';
+   +'<span>FPS</span><span>'+(d.fps?d.fps.toFixed(1):'-')+'</span>';
+
+  // update buttons
+  var ba=document.getElementById('btnAuto');
+  ba.textContent='Auto: '+(d.music_enabled?'ON':'OFF');
+  ba.className='btn '+(d.music_enabled?'btn-auto-on':'btn-auto-off');
+  var bm=document.getElementById('btnMode');
+  bm.textContent='Mode: '+(d.mode==='synth'?'Synth':'Local');
+  bm.className='btn '+(d.mode==='synth'?'btn-mode-synth':'btn-mode-local');
+  var bp=document.getElementById('btnPlay');
+  bp.textContent=d.is_playing?'Playing...':'Play';
+
   tlData.push({t:Date.now(),e:d.emotion});
   if(tlData.length>300)tlData.shift();
   drawTL();
   document.getElementById('status').textContent=
-   d.is_playing?'Playing ('+d.mode+')':'Idle | Auto:'+(d.music_enabled?'ON':'OFF');
+   (d.face_detected?'Face detected':'No face')+' | FPS: '+(d.fps?d.fps.toFixed(0):'-');
  }).catch(function(e){
   document.getElementById('status').textContent='Connection lost...';
  });
 }
+
 function drawTL(){
  var c=document.getElementById('tl');
  var ctx=c.getContext('2d');
  var w=c.width,h=c.height;
  ctx.clearRect(0,0,w,h);
  if(tlData.length<2)return;
- var dur=60000;
- var now=Date.now();
+ var dur=60000;var now=Date.now();
  for(var i=1;i<tlData.length;i++){
   var x1=((tlData[i-1].t-now+dur)/dur)*w;
   var x2=((tlData[i].t-now+dur)/dur)*w;
   if(x2<0)continue;
-  var ci=0;
   var labels=['Angry','Disgust','Fear','Happy','Sad','Surprised','Neutral'];
+  var ci=6;
   for(var j=0;j<7;j++){if(labels[j]==tlData[i].e){ci=j;break}}
-  var y=h/2-40+ci*12;
-  ctx.beginPath();
-  ctx.moveTo(Math.max(0,x1),y);
-  ctx.lineTo(x2,y);
-  ctx.strokeStyle=emoColors[tlData[i].e]||'#888';
-  ctx.lineWidth=3;
-  ctx.stroke();
+  var y=h/2-42+ci*13;
+  ctx.beginPath();ctx.moveTo(Math.max(0,x1),y);ctx.lineTo(x2,y);
+  ctx.strokeStyle=emoColors[tlData[i].e]||'#888';ctx.lineWidth=4;ctx.stroke();
+ }
+ // legend
+ for(var j=0;j<7;j++){
+  ctx.fillStyle=colors_arr(j);
+  ctx.fillRect(w-90,h/2-42+j*13-4,8,8);
+  ctx.fillStyle='#999';ctx.font='9px sans-serif';
+  ctx.fillText(labels[j],w-78,h/2-42+j*13+4);
  }
 }
+function colors_arr(i){return['#ff4444','#ff8800','#cc44cc','#ffee44','#4488ff','#ff8844','#aaaaaa'][i]}
+
+function showTab(el,id){
+ var tabs=document.querySelectorAll('.tab');
+ tabs.forEach(function(t){t.classList.remove('active')});
+ el.classList.add('active');
+ ['tabLog','tabSummary','tabWeek'].forEach(function(tid){
+  document.getElementById(tid).style.display=tid===id?'block':'none';
+ });
+}
+
+function loadSummary(){
+ var d=new Date();var ds=d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+ fetch('/api/summary?date='+ds).then(function(r){return r.json()}).then(function(d){
+  if(d.error){document.getElementById('summaryBox').textContent=d.error;return}
+  var labels=['Angry','Disgust','Fear','Happy','Sad','Surprised','Neutral'];
+  var colors=['#ff4444','#ff8800','#cc44cc','#ffee44','#4488ff','#ff8844','#aaaaaa'];
+  var h='<b>Date:</b> '+d.date+'<br><b>Total detections:</b> '+d.total_detections;
+  h+='<br><b>Dominant:</b> <span style="color:'+(emoColors[d.dominant_emotion]||'#fff')+'">'+d.dominant_emotion+'</span>';
+  if(d.percentages){
+   h+='<br><br>';
+   for(var i=0;i<7;i++){
+    var k=labels[i];var v=d.percentages[k]||0;
+    h+='<span style="color:'+colors[i]+'">'+k+'</span>: '+v.toFixed(1)+'% &nbsp;';
+   }
+  }
+  h+='<br><br><b>Transitions:</b> '+(d.transitions||0)+' <b>Music triggered:</b> '+(d.music_triggered_count||0);
+  document.getElementById('summaryBox').innerHTML=h;
+ }).catch(function(e){document.getElementById('summaryBox').textContent='Failed to load summary'});
+}
+
+function loadWeek(){
+ fetch('/api/summary?range=week').then(function(r){return r.json()}).then(function(d){
+  if(!d.days){document.getElementById('weekBox').textContent='No data';return}
+  var h='';
+  d.days.forEach(function(day){
+   var dom=day.dominant||'N/A';
+   var col=emoColors[dom]||'#888';
+   h+='<b>'+day.date+'</b>: '+day.total+' detections, dominant: <span style="color:'+col+'">'+dom+'</span>';
+   if(day.distribution){
+    h+=' (';
+    var labels=['Angry','Disgust','Fear','Happy','Sad','Surprised','Neutral'];
+    var parts=[];
+    for(var i=0;i<7;i++){
+     var v=day.distribution[labels[i]]||0;
+     if(v>0)parts.push(labels[i]+':'+v);
+    }
+    h+=parts.join(', ');
+    h+=')';
+   }
+   h+='<br>';
+  });
+  document.getElementById('weekBox').innerHTML=h||'No data yet';
+ }).catch(function(e){document.getElementById('weekBox').textContent='Failed to load'});
+}
+
 setInterval(update,1000);
+update();
+loadLog();
+function loadLog(){
+ fetch('/api/log').then(function(r){return r.text()}).then(function(t){
+  document.getElementById('logBox').textContent=t||'No log data';
+  var box=document.getElementById('logBox');box.scrollTop=box.scrollHeight;
+ }).catch(function(){});
+}
+setInterval(loadLog,10000);
 </script>
 </body>
 </html>

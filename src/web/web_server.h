@@ -34,6 +34,7 @@ private:
     void handleApiAuto(int client_fd);
     void handleApiMode(int client_fd);
     void handleApiSummary(int client_fd, const std::string& query);
+    void handleApiLog(int client_fd, const std::string& query);
 
     // HTTP 工具
     void sendResponse(int fd, int code, const std::string& content_type,

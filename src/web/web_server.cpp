@@ -181,6 +181,10 @@ bool WebServer::handleMjpegStream(int client_fd) {
         handleApiSummary(client_fd, query);
         return false;
     }
+    if (path == "/api/log") {
+        handleApiLog(client_fd, query);
+        return false;
+    }
 
     sendResponse(client_fd, 404, "text/plain", "Not Found");
     return false;
@@ -296,21 +300,37 @@ void WebServer::handleApiSummary(int client_fd, const std::string& query) {
         }
     }
 
+    if (!g_logger) {
+        sendResponse(client_fd, 200, "application/json", "{\"error\":\"Logger not enabled\"}");
+        return;
+    }
+
     if (range == "week") {
-        // 需要外部注入 EmotionLogger 指针 — 简化方案：读取文件
-        // 这里用静态方式不太好，改为通过 SharedState 传递
-        sendResponse(client_fd, 200, "application/json",
-            "{\"error\":\"Use /api/summary?date=YYYY-MM-DD or /api/summary?range=week\"}");
+        std::string summary = g_logger->getWeeklySummary();
+        sendResponse(client_fd, 200, "application/json", summary);
         return;
     }
 
-    if (!date.empty()) {
-        // 读取指定日期的日报 — 需要访问 EmotionLogger
-        // 通过一个简单方法：直接读 CSV 文件
-        sendResponse(client_fd, 200, "application/json",
-            "{\"date\":\"" + date + "\",\"note\":\"Logger summary requires EmotionLogger instance\"}");
+    if (date.empty()) {
+        date = EmotionLogger::todayString();
+    }
+    std::string summary = g_logger->getDailySummary(date);
+    sendResponse(client_fd, 200, "application/json", summary);
+}
+
+void WebServer::handleApiLog(int client_fd, const std::string& query) {
+    if (!g_logger) {
+        sendResponse(client_fd, 200, "text/plain", "Logger not enabled");
         return;
     }
-
-    sendResponse(client_fd, 200, "application/json", "{\"usage\":\"?date=YYYY-MM-DD or ?range=week\"}");
+    std::string date = EmotionLogger::todayString();
+    // 解析 ?date= 参数
+    auto qpos = query.find("date=");
+    if (qpos != std::string::npos) {
+        date = query.substr(qpos + 5);
+        auto amp = date.find('&');
+        if (amp != std::string::npos) date = date.substr(0, amp);
+    }
+    std::string log = g_logger->getDayLog(date);
+    sendResponse(client_fd, 200, "text/csv", log);
 }

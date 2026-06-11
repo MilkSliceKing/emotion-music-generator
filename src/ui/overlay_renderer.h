@@ -12,7 +12,8 @@ enum class ButtonAction {
     NONE = 0,
     QUIT,
     PLAY,
-    AUTO_TOGGLE
+    AUTO_TOGGLE,
+    MODE_TOGGLE
 };
 
 // 按钮
@@ -71,8 +72,8 @@ private:
                         bool is_playing, int frame_count, Emotion emotion);
     void drawEmotionChart(cv::Mat& frame, const std::deque<Emotion>& history,
                           Emotion current_emotion);
-    void drawButtons(cv::Mat& frame, bool is_playing, bool music_enabled);
-    void drawFooterBar(cv::Mat& frame);
+    void drawButtons(cv::Mat& frame, bool is_playing, bool music_enabled, int playback_mode, bool web_on, int web_port);
+    void drawFooterBar(cv::Mat& frame, bool web_on, int web_port);
 
     // 鼠标回调
     void handleMouse(int event, int x, int y);

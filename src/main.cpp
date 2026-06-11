@@ -17,6 +17,9 @@
 #include "web/web_server.h"
 #include "logger/emotion_logger.h"
 
+// 全局 logger 指针，供 WebServer 访问
+EmotionLogger* g_logger = nullptr;
+
 // 简易 YAML 配置读取器（仅支持 key: value 格式）
 static std::map<std::string, std::string> loadConfig(const std::string& path) {
     std::map<std::string, std::string> config;
@@ -159,9 +162,12 @@ int main(int argc, char* argv[]) {
     }
     if (logger_enabled) {
         emotion_logger.init(logger_data_dir);
+        g_logger = &emotion_logger;
     }
     if (web_enabled) {
         web_server.start(web_port, &shared_state);
+        shared_state.web_enabled = true;
+        shared_state.web_port = web_port;
     }
 
     // 注册鼠标回调（用于屏幕按钮交互）

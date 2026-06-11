@@ -353,16 +353,18 @@ void OverlayRenderer::drawEmotionChart(cv::Mat& frame, const std::deque<Emotion>
 
 // ========== 屏幕按钮 ==========
 
-void OverlayRenderer::drawButtons(cv::Mat& frame, bool is_playing, bool music_enabled) {
-    int btn_w = 60, btn_h = 26, btn_r = 13, gap = 8;
+void OverlayRenderer::drawButtons(cv::Mat& frame, bool is_playing, bool music_enabled, int playback_mode, bool web_on, int web_port) {
+    int btn_w = 58, btn_h = 26, btn_r = 13, gap = 6;
     int start_x = 10;
     int btn_y = frame.rows - 60;
 
-    // 更新按钮列表
+    // 更新按钮列表（4个按钮）
     buttons_ = {
         {{start_x, btn_y, btn_w, btn_h}, "QUIT", ButtonAction::QUIT, false, false},
         {{start_x + btn_w + gap, btn_y, btn_w, btn_h}, "PLAY", ButtonAction::PLAY, is_playing, false},
-        {{start_x + 2 * (btn_w + gap), btn_y, btn_w + 10, btn_h}, "AUTO", ButtonAction::AUTO_TOGGLE, music_enabled, false}
+        {{start_x + 2 * (btn_w + gap), btn_y, btn_w + 6, btn_h}, "AUTO", ButtonAction::AUTO_TOGGLE, music_enabled, false},
+        {{start_x + 3 * (btn_w + gap) + 6, btn_y, btn_w + 10, btn_h},
+         playback_mode == 0 ? "SYNTH" : "LOCAL", ButtonAction::MODE_TOGGLE, playback_mode == 1, false}
     };
 
     for (auto& btn : buttons_) {
@@ -375,6 +377,11 @@ void OverlayRenderer::drawButtons(cv::Mat& frame, bool is_playing, bool music_en
                 ? (btn.hovered ? cv::Scalar(20, 180, 80) : cv::Scalar(20, 140, 60))
                 : (btn.hovered ? cv::Scalar(60, 80, 60) : cv::Scalar(40, 55, 40));
             text_color = btn.active ? cv::Scalar(200, 255, 200) : cv::Scalar(140, 180, 140);
+        } else if (btn.action == ButtonAction::MODE_TOGGLE) {
+            bg_color = btn.active
+                ? (btn.hovered ? cv::Scalar(160, 50, 160) : cv::Scalar(120, 30, 120))
+                : (btn.hovered ? cv::Scalar(60, 60, 100) : cv::Scalar(45, 45, 75));
+            text_color = btn.active ? cv::Scalar(255, 200, 255) : cv::Scalar(170, 170, 210);
         } else {
             bg_color = btn.active
                 ? (btn.hovered ? cv::Scalar(20, 180, 80) : cv::Scalar(20, 140, 60))
@@ -399,13 +406,13 @@ void OverlayRenderer::drawButtons(cv::Mat& frame, bool is_playing, bool music_en
 
 // ========== 底部提示栏 ==========
 
-void OverlayRenderer::drawFooterBar(cv::Mat& frame) {
+void OverlayRenderer::drawFooterBar(cv::Mat& frame, bool web_on, int web_port) {
     int bar_h = 28, bar_y = frame.rows - bar_h;
     drawFrostedRect(frame, cv::Rect(0, bar_y, frame.cols, bar_h), cv::Scalar(15, 15, 20), 0.4, 21);
     cv::line(frame, cv::Point(0, bar_y), cv::Point(frame.cols, bar_y), cv::Scalar(60, 60, 80), 1, cv::LINE_AA);
 
     struct Shortcut { std::string key; std::string desc; };
-    Shortcut shortcuts[] = {{"ESC", "Quit"}, {"SPACE", "Play"}, {"M", "Auto"}};
+    Shortcut shortcuts[] = {{"ESC", "Quit"}, {"SPACE", "Play"}, {"M", "Auto"}, {"L", "Mode"}};
     cv::Scalar key_color(180, 200, 220), desc_color(100, 100, 120), sep_color(70, 70, 90);
 
     int total_w = 0;
@@ -418,18 +425,26 @@ void OverlayRenderer::drawFooterBar(cv::Mat& frame) {
 
     int x = (frame.cols - total_w) / 2;
     int text_y = bar_y + 18;
-    for (int i = 0; i < 3; ++i) {
+    for (int i = 0; i < 4; ++i) {
         cv::putText(frame, shortcuts[i].key, cv::Point(x, text_y),
                     cv::FONT_HERSHEY_SIMPLEX, font, key_color, 1, cv::LINE_AA);
         x += cv::getTextSize(shortcuts[i].key, cv::FONT_HERSHEY_SIMPLEX, font, 1, nullptr).width + 4;
         cv::putText(frame, shortcuts[i].desc, cv::Point(x, text_y),
                     cv::FONT_HERSHEY_SIMPLEX, font, desc_color, 1, cv::LINE_AA);
         x += cv::getTextSize(shortcuts[i].desc, cv::FONT_HERSHEY_SIMPLEX, font, 1, nullptr).width;
-        if (i < 2) {
+        if (i < 3) {
             x += 10;
             cv::putText(frame, "|", cv::Point(x, text_y), cv::FONT_HERSHEY_SIMPLEX, font, sep_color, 1, cv::LINE_AA);
             x += 10;
         }
+    }
+
+    // Web 地址显示（右下角）
+    if (web_on) {
+        std::string web_text = "Web: :" + std::to_string(web_port);
+        int tw = cv::getTextSize(web_text, cv::FONT_HERSHEY_SIMPLEX, font, 1, nullptr).width;
+        cv::putText(frame, web_text, cv::Point(frame.cols - tw - 10, text_y),
+                    cv::FONT_HERSHEY_SIMPLEX, font, cv::Scalar(80, 180, 80), 1, cv::LINE_AA);
     }
 }
 
@@ -464,10 +479,10 @@ ButtonAction OverlayRenderer::render(cv::Mat& frame,
     drawMusicPanel(frame, music_params, is_playing, frame_count, current_emotion);
 
     // 5. 屏幕按钮
-    drawButtons(frame, is_playing, music_enabled);
+    drawButtons(frame, is_playing, music_enabled, 0, false, 8080);
 
     // 6. 底部提示栏
-    drawFooterBar(frame);
+    drawFooterBar(frame, false, 8080);
 
     return action;
 }

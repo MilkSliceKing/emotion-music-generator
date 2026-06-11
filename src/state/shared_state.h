@@ -55,6 +55,12 @@ struct SharedState {
     std::atomic<bool> music_enabled{true};
     std::atomic<bool> is_playing{false};
     std::atomic<int> playback_mode{0};  // 0 = 合成, 1 = 本地音乐
+    bool web_enabled = false;
+    int web_port = 8080;
 };
+
+// 前向声明 + 全局指针，让 WebServer 可以访问 EmotionLogger
+class EmotionLogger;
+extern EmotionLogger* g_logger;
 
 #endif // SHARED_STATE_H
