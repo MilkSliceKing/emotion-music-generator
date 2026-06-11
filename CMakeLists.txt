@@ -51,7 +51,10 @@ set(SOURCES
     src/mapper/emotion_mapper.cpp
     src/generator/music_generator.cpp
     src/audio/audio_player.cpp
+    src/audio/local_music_player.cpp
     src/ui/overlay_renderer.cpp
+    src/web/web_server.cpp
+    src/logger/emotion_logger.cpp
 )
 
 add_executable(emotion_music_generator ${SOURCES})

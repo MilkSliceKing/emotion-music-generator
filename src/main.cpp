@@ -11,7 +11,11 @@
 #include "mapper/emotion_mapper.h"
 #include "generator/music_generator.h"
 #include "audio/audio_player.h"
+#include "audio/local_music_player.h"
 #include "ui/overlay_renderer.h"
+#include "state/shared_state.h"
+#include "web/web_server.h"
+#include "logger/emotion_logger.h"
 
 // 简易 YAML 配置读取器（仅支持 key: value 格式）
 static std::map<std::string, std::string> loadConfig(const std::string& path) {
@@ -134,14 +138,38 @@ int main(int argc, char* argv[]) {
     AudioPlayer player;
     OverlayRenderer renderer;
 
+    // ---- 初始化新模块（Web / 本地音乐 / 情绪日记）----
+    SharedState shared_state;
+    LocalMusicPlayer local_player;
+    EmotionLogger emotion_logger;
+    WebServer web_server;
+
+    // 读取新配置
+    bool web_enabled = cfg.count("web.enabled") ? (cfg["web.enabled"] == "true") : true;
+    int web_port = cfg.count("web.port") ? std::stoi(cfg["web.port"]) : 8080;
+    bool local_music_enabled = cfg.count("local_music.enabled") ? (cfg["local_music.enabled"] == "true") : true;
+    std::string music_library_path = cfg.count("local_music.library_path") ? cfg["local_music.library_path"] : "music";
+    bool logger_enabled = cfg.count("logger.enabled") ? (cfg["logger.enabled"] == "true") : true;
+    std::string logger_data_dir = cfg.count("logger.data_dir") ? cfg["logger.data_dir"] : "data";
+
+    int playback_mode = 0;  // 0 = 合成, 1 = 本地音乐
+
+    if (local_music_enabled) {
+        local_player.init(music_library_path);
+    }
+    if (logger_enabled) {
+        emotion_logger.init(logger_data_dir);
+    }
+    if (web_enabled) {
+        web_server.start(web_port, &shared_state);
+    }
+
     // 注册鼠标回调（用于屏幕按钮交互）
     cv::namedWindow("Emotion Music Generator", cv::WINDOW_AUTOSIZE);
     cv::setMouseCallback("Emotion Music Generator", OverlayRenderer::onMouse, &renderer);
 
     std::cout << "[初始化] 完成!" << std::endl;
-    if (!is_image_mode) {
-        std::cout << "按 ESC 退出, 按 SPACE 手动触发音乐, M 切换自动播放" << std::endl;
-    }
+    std::cout << "按 ESC 退出, SPACE 手动播放, M 切换自动, L 切换模式" << std::endl;
 
     // ---- 主循环 ----
     cv::Mat frame;
@@ -156,6 +184,9 @@ int main(int argc, char* argv[]) {
     auto last_music_time = std::chrono::steady_clock::now();
     bool music_enabled = true;
     MusicParams current_params = mapper.mapToMusic(Emotion::NEUTRAL);
+
+    // 情绪日志节流（不需要每帧都记）
+    auto last_log_time = std::chrono::steady_clock::now();
 
     while (true) {
         if (is_image_mode) {
@@ -181,9 +212,9 @@ int main(int argc, char* argv[]) {
 
         // ---- 面部检测 ----
         auto faces = detector.detectFaces(frame);
-        std::cout << "[检测] 发现 " << faces.size() << " 张人脸" << std::endl;
 
         bool face_detected = !faces.empty();
+        bool music_just_played = false;
 
         if (face_detected) {
             // 取最大的人脸
@@ -202,9 +233,7 @@ int main(int argc, char* argv[]) {
             }
 
             // ---- 情绪识别 ----
-            std::cout << "[情绪] 开始识别..." << std::endl;
             Emotion detected = recognizer.recognizeFromImage(frame, *biggest);
-            std::cout << "[情绪] 识别结果: " << emotionToString(detected) << std::endl;
             emotion_buffer.push_back(detected);
             if (static_cast<int>(emotion_buffer.size()) > SMOOTH_WINDOW) {
                 emotion_buffer.pop_front();
@@ -221,12 +250,29 @@ int main(int argc, char* argv[]) {
                 auto time_since_music = std::chrono::duration_cast<std::chrono::seconds>(
                     now - last_music_time).count();
                 if (is_image_mode || time_since_music >= 5) {
-                    auto composition = generator.generateComposition(current_params);
-                    player.playComposition(composition, current_params.mood);
+                    if (playback_mode == 0) {
+                        auto composition = generator.generateComposition(current_params);
+                        player.playComposition(composition, current_params.mood);
+                    } else if (local_music_enabled) {
+                        local_player.playForEmotion(current_emotion);
+                    }
                     last_music_time = now;
+                    music_just_played = true;
                     std::cout << "[播放] " << emotionToString(current_emotion)
                               << " -> " << current_params.key << " " << current_params.scale
-                              << " " << current_params.tempo << "BPM" << std::endl;
+                              << " " << current_params.tempo << "BPM"
+                              << " (" << (playback_mode == 0 ? "合成" : "本地") << ")" << std::endl;
+                }
+            }
+
+            // 情绪日志（每 3 秒记录一次，避免日志膨胀）
+            if (logger_enabled) {
+                auto time_since_log = std::chrono::duration_cast<std::chrono::seconds>(
+                    now - last_log_time).count();
+                if (time_since_log >= 3) {
+                    emotion_logger.log(current_emotion, recognizer.getConfidences(),
+                                       music_just_played, playback_mode == 0 ? "synth" : "local");
+                    last_log_time = now;
                 }
             }
         }
@@ -234,8 +280,18 @@ int main(int argc, char* argv[]) {
         // ---- 绘制 UI overlay ----
         ButtonAction btn_action = renderer.render(frame, fps, current_emotion,
                         recognizer.getConfidences(), current_params,
-                        player.isPlaying(), music_enabled,
+                        player.isPlaying() || local_player.isPlaying(), music_enabled,
                         face_detected, total_frames, emotion_history);
+
+        // ---- 更新共享状态（供 Web 线程读取）----
+        if (web_enabled) {
+            shared_state.setFrame(frame);
+            shared_state.setEmotionData(current_emotion, recognizer.getConfidences(),
+                                        current_params, face_detected, fps, total_frames);
+            shared_state.is_playing = player.isPlaying() || local_player.isPlaying();
+            shared_state.music_enabled = music_enabled;
+            shared_state.playback_mode = playback_mode;
+        }
 
         cv::imshow("Emotion Music Generator", frame);
 
@@ -243,9 +299,14 @@ int main(int argc, char* argv[]) {
         if (btn_action == ButtonAction::QUIT) break;
 
         if (btn_action == ButtonAction::PLAY) {
-            auto composition = generator.generateComposition(current_params);
-            player.playComposition(composition, current_params.mood);
-            std::cout << "[按钮播放] " << emotionToString(current_emotion) << std::endl;
+            if (playback_mode == 0) {
+                auto composition = generator.generateComposition(current_params);
+                player.playComposition(composition, current_params.mood);
+            } else if (local_music_enabled) {
+                local_player.playForEmotion(current_emotion);
+            }
+            std::cout << "[按钮播放] " << emotionToString(current_emotion)
+                      << " (" << (playback_mode == 0 ? "合成" : "本地") << ")" << std::endl;
         }
 
         if (btn_action == ButtonAction::AUTO_TOGGLE) {
@@ -258,8 +319,12 @@ int main(int argc, char* argv[]) {
         if (key == 27) break;
 
         if (key == ' ') {
-            auto composition = generator.generateComposition(current_params);
-            player.playComposition(composition, current_params.mood);
+            if (playback_mode == 0) {
+                auto composition = generator.generateComposition(current_params);
+                player.playComposition(composition, current_params.mood);
+            } else if (local_music_enabled) {
+                local_player.playForEmotion(current_emotion);
+            }
             std::cout << "[手动播放] " << emotionToString(current_emotion) << std::endl;
         }
 
@@ -268,12 +333,44 @@ int main(int argc, char* argv[]) {
             std::cout << "[自动播放] " << (music_enabled ? "开启" : "关闭") << std::endl;
         }
 
+        if (key == 'l' || key == 'L') {
+            playback_mode = 1 - playback_mode;
+            std::cout << "[模式] 切换到 " << (playback_mode == 0 ? "合成" : "本地音乐") << std::endl;
+        }
+
+        // ---- 处理 Web 控制请求 ----
+        if (shared_state.play_requested.exchange(false)) {
+            if (playback_mode == 0) {
+                auto composition = generator.generateComposition(current_params);
+                player.playComposition(composition, current_params.mood);
+            } else if (local_music_enabled) {
+                local_player.playForEmotion(current_emotion);
+            }
+            std::cout << "[Web播放] " << emotionToString(current_emotion) << std::endl;
+        }
+        if (shared_state.auto_toggle_requested.exchange(false)) {
+            music_enabled = !music_enabled;
+            std::cout << "[Web] 自动播放 " << (music_enabled ? "开启" : "关闭") << std::endl;
+        }
+        if (shared_state.mode_switch_requested.exchange(false)) {
+            playback_mode = 1 - playback_mode;
+            std::cout << "[Web] 切换到 " << (playback_mode == 0 ? "合成" : "本地音乐") << std::endl;
+        }
+        if (shared_state.pause_requested.exchange(false)) {
+            player.stop();
+            local_player.stop();
+            std::cout << "[Web] 停止播放" << std::endl;
+        }
+
         if (is_image_mode && key >= 0) break;
     }
 
+    // ---- 清理 ----
+    if (web_enabled) web_server.stop();
     cap.release();
     cv::destroyAllWindows();
     player.cleanup();
+    local_player.cleanup();
     std::cout << "程序已退出" << std::endl;
 
     return 0;

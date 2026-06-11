@@ -30,3 +30,18 @@ logging:
   show_emotion: true
   show_landmarks: true
   show_face_box: true
+
+# Web 远程控制
+web:
+  enabled: true
+  port: 8080
+
+# 本地音乐播放（按情绪匹配 music/<mood>/ 下的音频文件）
+local_music:
+  enabled: true
+  library_path: "music"
+
+# 情绪日记日志
+logger:
+  enabled: true
+  data_dir: "data"
