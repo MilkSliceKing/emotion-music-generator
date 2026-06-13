@@ -15,6 +15,7 @@ struct MusicParams {
     std::vector<int> progression;   // 和弦进行（音阶度数 0-6）
     std::string accompaniment;      // 伴奏模式: "arpeggiated", "block", "alberti"
     int num_phrases;                // 乐句数量（每个乐句 4 小节）
+    double target_duration;         // 目标时长（秒），用于动态计算乐句数
 };
 
 class EmotionMapper {

@@ -23,8 +23,10 @@ public:
     bool init();
 
     // 混合播放：时间线叠加旋律+伴奏，归一化防削波
+    // save_path: 如果非空，额外保存一份 WAV 到该路径
     void playComposition(const std::vector<TimedNote>& notes,
-                         const std::string& mood = "calm");
+                         const std::string& mood = "calm",
+                         const std::string& save_path = "");
 
     void stop();
     void cleanup();

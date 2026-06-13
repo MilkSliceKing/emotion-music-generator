@@ -586,7 +586,8 @@ std::string AudioPlayer::findPlayerCommand() {
 }
 
 void AudioPlayer::playComposition(const std::vector<TimedNote>& notes,
-                                   const std::string& mood) {
+                                   const std::string& mood,
+                                   const std::string& save_path) {
     if (!initialized_) {
         if (!init()) {
             std::cerr << "[AudioPlayer] 初始化失败，无法播放" << std::endl;
@@ -669,6 +670,22 @@ void AudioPlayer::playComposition(const std::vector<TimedNote>& notes,
     } else {
         std::cerr << "[AudioPlayer] WAV 文件不存在，写入可能失败" << std::endl;
         return;
+    }
+
+    // 保存到指定路径（如果提供了 save_path）
+    if (!save_path.empty()) {
+        // 自动创建目录
+        auto last_slash = save_path.find_last_of('/');
+        if (last_slash != std::string::npos) {
+            std::string dir = save_path.substr(0, last_slash);
+            std::string mkdir_cmd = "mkdir -p " + dir;
+            std::system(mkdir_cmd.c_str());
+        }
+        if (writeWavFile(save_path, buffer, sample_rate)) {
+            std::cout << "[AudioPlayer] 已保存到: " << save_path << std::endl;
+        } else {
+            std::cerr << "[AudioPlayer] 保存失败: " << save_path << std::endl;
+        }
     }
 
     std::string player_cmd = findPlayerCommand();

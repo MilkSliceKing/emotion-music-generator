@@ -5,6 +5,7 @@
 #include <fstream>
 #include <sstream>
 #include <map>
+#include <ctime>
 
 #include "detector/face_detector.h"
 #include "detector/emotion_recognizer.h"
@@ -54,6 +55,24 @@ static std::map<std::string, std::string> loadConfig(const std::string& path) {
 // 情绪平滑缓冲区大小
 static constexpr int SMOOTH_WINDOW = 5;
 
+// 生成时间戳字符串 (YYYYMMDD_HHMMSS)
+static std::string timestampString() {
+    auto now = std::chrono::system_clock::now();
+    auto time_t_now = std::chrono::system_clock::to_time_t(now);
+    char buf[32];
+    std::strftime(buf, sizeof(buf), "%Y%m%d_%H%M%S", std::localtime(&time_t_now));
+    return std::string(buf);
+}
+
+// 从情绪计数数组中取众数
+static Emotion getDominantEmotion(const int counts[7]) {
+    int max_idx = 0;
+    for (int i = 1; i < 7; ++i) {
+        if (counts[i] > counts[max_idx]) max_idx = i;
+    }
+    return static_cast<Emotion>(max_idx);
+}
+
 // 取众数平滑
 static Emotion smoothEmotion(const std::deque<Emotion>& buffer) {
     int counts[7] = {0};
@@ -92,6 +111,7 @@ int main(int argc, char* argv[]) {
     cv::VideoCapture cap;
     cv::Mat static_image;
     bool is_image_mode = false;
+    bool is_video_mode = false;
 
     if (mode == "camera") {
         cap.open(0);
@@ -116,6 +136,7 @@ int main(int argc, char* argv[]) {
             std::cerr << "[错误] 无法打开视频: " << argv[2] << std::endl;
             return -1;
         }
+        is_video_mode = true;
         std::cout << "[视频] 已打开: " << argv[2] << std::endl;
     } else {
         std::cerr << "[错误] 未知模式: " << mode << std::endl;
@@ -196,6 +217,14 @@ int main(int argc, char* argv[]) {
     auto last_log_time = std::chrono::steady_clock::now();
     bool show_perf_panel = false;
 
+    // 连续播放控制
+    bool was_playing = false;
+    bool first_play_done = false;
+    auto last_play_end_time = std::chrono::steady_clock::now();
+
+    // 视频模式情绪统计
+    int emotion_counts[7] = {0};
+
     while (true) {
         auto frame_start = std::chrono::high_resolution_clock::now();
 
@@ -265,24 +294,45 @@ int main(int argc, char* argv[]) {
             emotion_history.push_back(current_emotion);
             if (emotion_history.size() > 200) emotion_history.pop_front();
 
-            // 自动播放音乐 (每5秒，图片模式立即播放)
+            // 视频模式：统计情绪
+            if (is_video_mode) {
+                emotion_counts[static_cast<int>(current_emotion)]++;
+            }
+
+            // 自动播放音乐：播完续播 + 首次/超时兜底
             { ScopedTimer timer_music(Stage::MUSIC_GEN);
             if (music_enabled) {
-                auto time_since_music = std::chrono::duration_cast<std::chrono::seconds>(
+                bool currently_playing = player.isPlaying() || local_player.isPlaying();
+                bool just_finished = was_playing && !currently_playing;
+                auto time_since_last = std::chrono::duration_cast<std::chrono::seconds>(
                     now - last_music_time).count();
-                if (is_image_mode || time_since_music >= 5) {
+
+                // 触发条件：音乐刚播完 / 首次播放 / 超过8秒兜底 / 图片模式
+                bool should_play = just_finished
+                                   || (!first_play_done && face_detected)
+                                   || (time_since_last >= 8 && !currently_playing)
+                                   || is_image_mode;
+
+                if (should_play) {
                     if (playback_mode == 0) {
                         auto composition = generator.generateComposition(current_params);
-                        player.playComposition(composition, current_params.mood);
+                        // 自动保存到 output/ 目录
+                        std::string save_path = "output/" + emotionToString(current_emotion)
+                                                + "_" + timestampString() + ".wav";
+                        player.playComposition(composition, current_params.mood, save_path);
                     } else if (local_music_enabled) {
                         local_player.playForEmotion(current_emotion);
                     }
                     last_music_time = now;
+                    first_play_done = true;
                     music_just_played = true;
+                    currently_playing = true;
                     std::cout << "[播放] " << emotionToString(current_emotion)
                               << " -> " << current_params.key << " " << current_params.scale
                               << " " << current_params.tempo << "BPM"
                               << " (" << (playback_mode == 0 ? "合成" : "本地") << ")" << std::endl;
+                }
+                was_playing = currently_playing;
                 }
             }
             } // MUSIC_GEN 探针结束
@@ -405,6 +455,39 @@ int main(int argc, char* argv[]) {
         }
 
         if (is_image_mode && key >= 0) break;
+    }
+
+    // ---- 视频模式：生成总结音频 ----
+    if (is_video_mode) {
+        Emotion dominant = getDominantEmotion(emotion_counts);
+        std::cout << "\n========== 视频分析完成 ==========" << std::endl;
+        std::cout << "情绪统计:" << std::endl;
+        const char* emo_names[] = {"Neutral", "Happy", "Surprised", "Sad", "Angry", "Disgust", "Fear"};
+        int total = 0;
+        for (int i = 0; i < 7; ++i) total += emotion_counts[i];
+        for (int i = 0; i < 7; ++i) {
+            if (emotion_counts[i] > 0) {
+                int pct = total > 0 ? (emotion_counts[i] * 100 / total) : 0;
+                std::cout << "  " << emo_names[i] << ": " << emotion_counts[i]
+                          << " 帧 (" << pct << "%)" << std::endl;
+            }
+        }
+        std::cout << "主导情绪: " << emotionToString(dominant) << std::endl;
+
+        // 生成 10 秒总结音频并保存
+        MusicParams summary_params = mapper.mapToMusic(dominant);
+        summary_params.target_duration = 10.0;
+        auto summary_comp = generator.generateComposition(summary_params);
+        std::string summary_path = "output/video_summary_" + emotionToString(dominant)
+                                   + "_" + timestampString() + ".wav";
+        player.playComposition(summary_comp, summary_params.mood, summary_path);
+        std::cout << "[总结音频] 已保存到: " << summary_path << std::endl;
+        std::cout << "==================================\n" << std::endl;
+
+        // 等待播放完成
+        while (player.isPlaying()) {
+            usleep(200000);  // 200ms
+        }
     }
 
     // ---- 清理 ----

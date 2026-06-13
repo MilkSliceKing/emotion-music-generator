@@ -390,7 +390,15 @@ std::vector<TimedNote> MusicGenerator::generateComposition(const MusicParams& pa
     auto melody_scale = getScaleIntervals(params.scale);
     double beat_dur = 60.0 / params.tempo;
 
-    int num_phrases = std::max(1, params.num_phrases);
+    // 用 target_duration 动态计算乐句数
+    // 每个 phrase = 4 bars × 4 beats，时长 = 16 * beat_dur
+    double phrase_dur = 4.0 * 4.0 * beat_dur;
+    int num_phrases;
+    if (params.target_duration > 0) {
+        num_phrases = std::max(1, static_cast<int>(std::ceil(params.target_duration / phrase_dur)));
+    } else {
+        num_phrases = std::max(1, params.num_phrases);
+    }
     double time = 0.0;
 
     for (int phrase = 0; phrase < num_phrases; ++phrase) {
