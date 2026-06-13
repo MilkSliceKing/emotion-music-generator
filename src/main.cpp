@@ -6,6 +6,7 @@
 #include <sstream>
 #include <map>
 #include <ctime>
+#include <unistd.h>
 
 #include "detector/face_detector.h"
 #include "detector/emotion_recognizer.h"
