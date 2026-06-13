@@ -333,7 +333,6 @@ int main(int argc, char* argv[]) {
                               << " (" << (playback_mode == 0 ? "合成" : "本地") << ")" << std::endl;
                 }
                 was_playing = currently_playing;
-                }
             }
             } // MUSIC_GEN 探针结束
 
