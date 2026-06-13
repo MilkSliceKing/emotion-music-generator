@@ -86,6 +86,8 @@ private:
 
 public:
     void setShowPerfPanel(bool show) { show_perf_panel_ = show; }
+
+    static const cv::Scalar EMOTION_COLORS[7];
     static const std::string EMOTION_SHORT_NAMES[7];
 };
 

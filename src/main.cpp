@@ -224,8 +224,9 @@ int main(int argc, char* argv[]) {
         }
 
         // ---- 面部检测 ----
+        std::vector<FaceRect> faces;
         { ScopedTimer timer_detect(Stage::DETECT);
-        auto faces = detector.detectFaces(frame);
+        faces = detector.detectFaces(frame);
         } // DETECT 探针结束
 
         bool face_detected = !faces.empty();
