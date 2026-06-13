@@ -6,6 +6,7 @@
 #include <deque>
 #include "detector/emotion_recognizer.h"
 #include "mapper/emotion_mapper.h"
+#include "profiler/perf_profiler.h"
 
 // 按钮点击动作
 enum class ButtonAction {
@@ -74,14 +75,17 @@ private:
                           Emotion current_emotion);
     void drawButtons(cv::Mat& frame, bool is_playing, bool music_enabled, int playback_mode, bool web_on, int web_port);
     void drawFooterBar(cv::Mat& frame, bool web_on, int web_port);
+    void drawPerfPanel(cv::Mat& frame, double fps);
 
     // 鼠标回调
     void handleMouse(int event, int x, int y);
     ButtonAction last_click_action_;
 
     std::vector<UIButton> buttons_;
+    bool show_perf_panel_ = false;
 
-    static const cv::Scalar EMOTION_COLORS[7];
+public:
+    void setShowPerfPanel(bool show) { show_perf_panel_ = show; }
     static const std::string EMOTION_SHORT_NAMES[7];
 };
 

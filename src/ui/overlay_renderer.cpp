@@ -284,6 +284,109 @@ void OverlayRenderer::drawMusicPanel(cv::Mat& frame, const MusicParams& params,
                 cv::FONT_HERSHEY_SIMPLEX, 0.3, sc, 1, cv::LINE_AA);
 }
 
+// ========== 性能面板 ==========
+
+void OverlayRenderer::drawPerfPanel(cv::Mat& frame, double fps) {
+    // 面板尺寸与位置：右上角，紧贴 header 下方
+    int panel_w = 222, panel_h = 210;
+    int panel_x = frame.cols - panel_w - 8;
+    int panel_y = 66;
+
+    // 毛玻璃背景
+    drawFrostedRect(frame, cv::Rect(panel_x, panel_y, panel_w, panel_h),
+                    cv::Scalar(10, 10, 18), 0.55, 15);
+    drawRoundRect(frame, cv::Rect(panel_x, panel_y, panel_w, panel_h),
+                  10, cv::Scalar(70, 70, 90), 1);
+
+    // 标题
+    cv::putText(frame, "PERFORMANCE", cv::Point(panel_x + 12, panel_y + 17),
+                cv::FONT_HERSHEY_SIMPLEX, 0.35, cv::Scalar(140, 140, 160), 1, cv::LINE_AA);
+    // 分隔线
+    cv::line(frame, cv::Point(panel_x + 10, panel_y + 22),
+             cv::Point(panel_x + panel_w - 10, panel_y + 22),
+             cv::Scalar(60, 60, 80), 1, cv::LINE_AA);
+
+    // 获取探针数据
+    auto& profiler = PerfProfiler::instance();
+    int row_y = panel_y + 36;
+    int row_h = 18;
+
+    // 列标题
+    cv::Scalar hdr_color(100, 100, 120);
+    cv::putText(frame, "Stage", cv::Point(panel_x + 10, row_y),
+                cv::FONT_HERSHEY_SIMPLEX, 0.28, hdr_color, 1, cv::LINE_AA);
+    cv::putText(frame, "last", cv::Point(panel_x + 105, row_y),
+                cv::FONT_HERSHEY_SIMPLEX, 0.28, hdr_color, 1, cv::LINE_AA);
+    cv::putText(frame, "avg", cv::Point(panel_x + 148, row_y),
+                cv::FONT_HERSHEY_SIMPLEX, 0.28, hdr_color, 1, cv::LINE_AA);
+    cv::putText(frame, "max", cv::Point(panel_x + 186, row_y),
+                cv::FONT_HERSHEY_SIMPLEX, 0.28, hdr_color, 1, cv::LINE_AA);
+    row_y += 4;
+
+    // 最大耗时参考值（用于进度条缩放）
+    double ref_ms = 35.0;
+
+    for (int i = 0; i < STAGE_COUNT; ++i) {
+        Stage s = static_cast<Stage>(i);
+        const auto& t = profiler.get(s);
+        int y = row_y + i * row_h;
+        int text_y = y + 12;
+
+        // 阶段名
+        cv::putText(frame, stageName(s), cv::Point(panel_x + 10, text_y),
+                    cv::FONT_HERSHEY_SIMPLEX, 0.3, cv::Scalar(180, 180, 200), 1, cv::LINE_AA);
+
+        // 进度条背景
+        int bar_x = panel_x + 76, bar_w = 24;
+        cv::rectangle(frame, cv::Point(bar_x, y + 3), cv::Point(bar_x + bar_w, y + 13),
+                      cv::Scalar(35, 35, 45), -1, cv::LINE_AA);
+
+        // 进度条填充（颜色编码：<10ms 绿, 10-25ms 黄, >25ms 红）
+        double ms = t.last_ms;
+        int fill_w = std::min(bar_w, std::max(0, static_cast<int>(ms / ref_ms * bar_w)));
+        cv::Scalar bar_color;
+        if (ms < 5)       bar_color = cv::Scalar(80, 200, 80);    // 绿
+        else if (ms < 15)  bar_color = cv::Scalar(80, 220, 220);   // 青
+        else if (ms < 25)  bar_color = cv::Scalar(60, 200, 255);   // 黄
+        else               bar_color = cv::Scalar(60, 60, 255);    // 红
+        if (fill_w > 0) {
+            cv::rectangle(frame, cv::Point(bar_x, y + 3), cv::Point(bar_x + fill_w, y + 13),
+                          bar_color, -1, cv::LINE_AA);
+        }
+
+        // 数值
+        auto fmtMs = [](double v) -> std::string {
+            char buf[16];
+            if (v < 0.05) snprintf(buf, sizeof(buf), "%5s", "-");
+            else snprintf(buf, sizeof(buf), "%5.1f", v);
+            return std::string(buf);
+        };
+        cv::Scalar val_color = (ms >= 25) ? cv::Scalar(100, 100, 255) : cv::Scalar(200, 200, 210);
+        cv::putText(frame, fmtMs(t.last_ms), cv::Point(panel_x + 103, text_y),
+                    cv::FONT_HERSHEY_SIMPLEX, 0.28, val_color, 1, cv::LINE_AA);
+        cv::putText(frame, fmtMs(t.avg_ms), cv::Point(panel_x + 145, text_y),
+                    cv::FONT_HERSHEY_SIMPLEX, 0.28, cv::Scalar(150, 150, 165), 1, cv::LINE_AA);
+        cv::putText(frame, fmtMs(t.max_ms), cv::Point(panel_x + 186, text_y),
+                    cv::FONT_HERSHEY_SIMPLEX, 0.28, cv::Scalar(150, 150, 165), 1, cv::LINE_AA);
+    }
+
+    // 底部分隔线 + 总耗时 + FPS
+    int bottom_y = panel_y + panel_h - 24;
+    cv::line(frame, cv::Point(panel_x + 10, bottom_y),
+             cv::Point(panel_x + panel_w - 10, bottom_y),
+             cv::Scalar(60, 60, 80), 1, cv::LINE_AA);
+
+    // 计算总耗时（各阶段 last_ms 之和）
+    double total = 0;
+    for (int i = 0; i < STAGE_COUNT; ++i) {
+        total += profiler.get(static_cast<Stage>(i)).last_ms;
+    }
+    char total_buf[64];
+    snprintf(total_buf, sizeof(total_buf), "Total: %.1fms  |  %.0f FPS", total, fps);
+    cv::putText(frame, total_buf, cv::Point(panel_x + 12, bottom_y + 16),
+                cv::FONT_HERSHEY_SIMPLEX, 0.32, cv::Scalar(180, 220, 255), 1, cv::LINE_AA);
+}
+
 // ========== 情绪历史曲线图 ==========
 
 void OverlayRenderer::drawEmotionChart(cv::Mat& frame, const std::deque<Emotion>& history,
@@ -412,7 +515,7 @@ void OverlayRenderer::drawFooterBar(cv::Mat& frame, bool web_on, int web_port) {
     cv::line(frame, cv::Point(0, bar_y), cv::Point(frame.cols, bar_y), cv::Scalar(60, 60, 80), 1, cv::LINE_AA);
 
     struct Shortcut { std::string key; std::string desc; };
-    Shortcut shortcuts[] = {{"ESC", "Quit"}, {"SPACE", "Play"}, {"M", "Auto"}, {"L", "Mode"}};
+    Shortcut shortcuts[] = {{"ESC", "Quit"}, {"SPACE", "Play"}, {"M", "Auto"}, {"L", "Mode"}, {"P", "Perf"}};
     cv::Scalar key_color(180, 200, 220), desc_color(100, 100, 120), sep_color(70, 70, 90);
 
     int total_w = 0;
@@ -425,14 +528,14 @@ void OverlayRenderer::drawFooterBar(cv::Mat& frame, bool web_on, int web_port) {
 
     int x = (frame.cols - total_w) / 2;
     int text_y = bar_y + 18;
-    for (int i = 0; i < 4; ++i) {
+    for (int i = 0; i < 5; ++i) {
         cv::putText(frame, shortcuts[i].key, cv::Point(x, text_y),
                     cv::FONT_HERSHEY_SIMPLEX, font, key_color, 1, cv::LINE_AA);
         x += cv::getTextSize(shortcuts[i].key, cv::FONT_HERSHEY_SIMPLEX, font, 1, nullptr).width + 4;
         cv::putText(frame, shortcuts[i].desc, cv::Point(x, text_y),
                     cv::FONT_HERSHEY_SIMPLEX, font, desc_color, 1, cv::LINE_AA);
         x += cv::getTextSize(shortcuts[i].desc, cv::FONT_HERSHEY_SIMPLEX, font, 1, nullptr).width;
-        if (i < 3) {
+        if (i < 4) {
             x += 10;
             cv::putText(frame, "|", cv::Point(x, text_y), cv::FONT_HERSHEY_SIMPLEX, font, sep_color, 1, cv::LINE_AA);
             x += 10;
@@ -483,6 +586,11 @@ ButtonAction OverlayRenderer::render(cv::Mat& frame,
 
     // 6. 底部提示栏
     drawFooterBar(frame, false, 8080);
+
+    // 7. 性能面板（P 键切换）
+    if (show_perf_panel_) {
+        drawPerfPanel(frame, fps);
+    }
 
     return action;
 }

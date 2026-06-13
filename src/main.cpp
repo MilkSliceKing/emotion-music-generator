@@ -16,6 +16,7 @@
 #include "state/shared_state.h"
 #include "web/web_server.h"
 #include "logger/emotion_logger.h"
+#include "profiler/perf_profiler.h"
 
 // 全局 logger 指针，供 WebServer 访问
 EmotionLogger* g_logger = nullptr;
@@ -175,7 +176,7 @@ int main(int argc, char* argv[]) {
     cv::setMouseCallback("Emotion Music Generator", OverlayRenderer::onMouse, &renderer);
 
     std::cout << "[初始化] 完成!" << std::endl;
-    std::cout << "按 ESC 退出, SPACE 手动播放, M 切换自动, L 切换模式" << std::endl;
+    std::cout << "按 ESC 退出, SPACE 手动播放, M 切换自动, L 切换模式, P 性能面板" << std::endl;
 
     // ---- 主循环 ----
     cv::Mat frame;
@@ -193,8 +194,13 @@ int main(int argc, char* argv[]) {
 
     // 情绪日志节流（不需要每帧都记）
     auto last_log_time = std::chrono::steady_clock::now();
+    bool show_perf_panel = false;
 
     while (true) {
+        auto frame_start = std::chrono::high_resolution_clock::now();
+
+        { // CAPTURE 探针
+        ScopedTimer timer_capture(Stage::CAPTURE);
         if (is_image_mode) {
             frame = static_image.clone();
         } else {
@@ -204,6 +210,7 @@ int main(int argc, char* argv[]) {
             std::cerr << "[警告] 空帧，输入结束" << std::endl;
             break;
         }
+        } // CAPTURE 探针结束
 
         // ---- FPS 计算 ----
         fps_counter++;
@@ -217,7 +224,9 @@ int main(int argc, char* argv[]) {
         }
 
         // ---- 面部检测 ----
+        { ScopedTimer timer_detect(Stage::DETECT);
         auto faces = detector.detectFaces(frame);
+        } // DETECT 探针结束
 
         bool face_detected = !faces.empty();
         bool music_just_played = false;
@@ -233,12 +242,15 @@ int main(int argc, char* argv[]) {
             detector.drawFace(frame, *biggest, OverlayRenderer::getEmotionColor(current_emotion));
 
             // 提取并绘制关键点
+            { ScopedTimer timer_landmark(Stage::LANDMARK);
             auto landmarks = detector.getLandmarks(frame, *biggest);
             if (!landmarks.empty()) {
                 detector.drawLandmarks(frame, landmarks);
             }
+            } // LANDMARK 探针结束
 
             // ---- 情绪识别 ----
+            { ScopedTimer timer_recognize(Stage::RECOGNIZE);
             Emotion detected = recognizer.recognizeFromImage(frame, *biggest);
             emotion_buffer.push_back(detected);
             if (static_cast<int>(emotion_buffer.size()) > SMOOTH_WINDOW) {
@@ -246,12 +258,14 @@ int main(int argc, char* argv[]) {
             }
             current_emotion = smoothEmotion(emotion_buffer);
             current_params = mapper.mapToMusic(current_emotion);
+            } // RECOGNIZE+SMOOTH 探针结束
 
             // 更新情绪历史
             emotion_history.push_back(current_emotion);
             if (emotion_history.size() > 200) emotion_history.pop_front();
 
             // 自动播放音乐 (每5秒，图片模式立即播放)
+            { ScopedTimer timer_music(Stage::MUSIC_GEN);
             if (music_enabled) {
                 auto time_since_music = std::chrono::duration_cast<std::chrono::seconds>(
                     now - last_music_time).count();
@@ -270,6 +284,7 @@ int main(int argc, char* argv[]) {
                               << " (" << (playback_mode == 0 ? "合成" : "本地") << ")" << std::endl;
                 }
             }
+            } // MUSIC_GEN 探针结束
 
             // 情绪日志（每 3 秒记录一次，避免日志膨胀）
             if (logger_enabled) {
@@ -284,12 +299,16 @@ int main(int argc, char* argv[]) {
         }
 
         // ---- 绘制 UI overlay ----
-        ButtonAction btn_action = renderer.render(frame, fps, current_emotion,
+        ButtonAction btn_action = ButtonAction::NONE;
+        { ScopedTimer timer_ui(Stage::UI_RENDER);
+        btn_action = renderer.render(frame, fps, current_emotion,
                         recognizer.getConfidences(), current_params,
                         player.isPlaying() || local_player.isPlaying(), music_enabled,
                         face_detected, total_frames, emotion_history);
+        } // UI_RENDER 探针结束
 
         // ---- 更新共享状态（供 Web 线程读取）----
+        { ScopedTimer timer_state(Stage::STATE_UPDATE);
         if (web_enabled) {
             shared_state.setFrame(frame);
             shared_state.setEmotionData(current_emotion, recognizer.getConfidences(),
@@ -297,6 +316,16 @@ int main(int argc, char* argv[]) {
             shared_state.is_playing = player.isPlaying() || local_player.isPlaying();
             shared_state.music_enabled = music_enabled;
             shared_state.playback_mode = playback_mode;
+        }
+        } // STATE_UPDATE 探针结束
+
+        // ---- 性能数据写入共享状态 ----
+        {
+            std::array<StageTiming, STAGE_COUNT> snap;
+            PerfProfiler::instance().snapshot(snap);
+            auto frame_end = std::chrono::high_resolution_clock::now();
+            double total_ms = std::chrono::duration<double, std::milli>(frame_end - frame_start).count();
+            shared_state.setPerfData(snap, total_ms);
         }
 
         cv::imshow("Emotion Music Generator", frame);
@@ -342,6 +371,12 @@ int main(int argc, char* argv[]) {
         if (key == 'l' || key == 'L') {
             playback_mode = 1 - playback_mode;
             std::cout << "[模式] 切换到 " << (playback_mode == 0 ? "合成" : "本地音乐") << std::endl;
+        }
+
+        if (key == 'p' || key == 'P') {
+            show_perf_panel = !show_perf_panel;
+            renderer.setShowPerfPanel(show_perf_panel);
+            std::cout << "[性能面板] " << (show_perf_panel ? "显示" : "隐藏") << std::endl;
         }
 
         // ---- 处理 Web 控制请求 ----

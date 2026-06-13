@@ -259,7 +259,24 @@ void WebServer::handleApiStatus(int client_fd) {
     json << "\"music_enabled\":" << (state_->music_enabled ? "true" : "false") << ",";
     json << "\"mode\":\"" << (state_->playback_mode == 0 ? "synth" : "local") << "\",";
     json << "\"fps\":" << std::fixed << std::setprecision(1) << state_->fps << ",";
-    json << "\"face_detected\":" << (state_->face_detected ? "true" : "false");
+    json << "\"face_detected\":" << (state_->face_detected ? "true" : "false") << ",";
+
+    // 性能探针数据
+    std::array<StageTiming, STAGE_COUNT> perf;
+    double perf_total;
+    state_->getPerfData(perf, perf_total);
+    json << "\"perf\":{";
+    const char* stage_keys[STAGE_COUNT] = {
+        "capture_ms", "detect_ms", "landmark_ms", "infer_ms",
+        "smooth_ms", "music_ms", "ui_ms", "state_ms"
+    };
+    for (int i = 0; i < STAGE_COUNT; ++i) {
+        if (i > 0) json << ",";
+        json << "\"" << stage_keys[i] << "\":" << std::fixed << std::setprecision(1) << perf[i].last_ms;
+    }
+    json << ",\"total_ms\":" << std::fixed << std::setprecision(1) << perf_total;
+    json << "}";
+
     json << "}";
 
     sendResponse(client_fd, 200, "application/json", json.str());

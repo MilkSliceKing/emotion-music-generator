@@ -5,9 +5,11 @@
 #include <vector>
 #include <string>
 #include <atomic>
+#include <array>
 #include <opencv2/opencv.hpp>
 #include "detector/emotion_recognizer.h"
 #include "mapper/emotion_mapper.h"
+#include "profiler/perf_profiler.h"
 
 // 主线程与 Web 服务线程之间的共享状态
 struct SharedState {
@@ -57,6 +59,23 @@ struct SharedState {
     std::atomic<int> playback_mode{0};  // 0 = 合成, 1 = 本地音乐
     bool web_enabled = false;
     int web_port = 8080;
+
+    // ---- 性能探针数据（主线程写，Web/UI 线程读）----
+    std::mutex perf_mutex;
+    std::array<StageTiming, STAGE_COUNT> perf_timings{};
+    double perf_total_ms = 0.0;  // 一帧管线总耗时
+
+    void setPerfData(const std::array<StageTiming, STAGE_COUNT>& timings, double total_ms) {
+        std::lock_guard<std::mutex> lock(perf_mutex);
+        perf_timings = timings;
+        perf_total_ms = total_ms;
+    }
+
+    void getPerfData(std::array<StageTiming, STAGE_COUNT>& timings, double& total_ms) {
+        std::lock_guard<std::mutex> lock(perf_mutex);
+        timings = perf_timings;
+        total_ms = perf_total_ms;
+    }
 };
 
 // 前向声明 + 全局指针，让 WebServer 可以访问 EmotionLogger

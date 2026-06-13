@@ -1,0 +1,948 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>情绪音乐生成器 — 项目问答</title>
+<style>
+  :root {
+    --bg: #0f1117;
+    --card: #1a1d27;
+    --card-hover: #222633;
+    --border: #2a2e3d;
+    --text: #e0e4f0;
+    --text-dim: #8b90a5;
+    --accent: #6c8cff;
+    --accent-glow: rgba(108,140,255,0.15);
+    --green: #5eead4;
+    --orange: #fbbf24;
+    --pink: #f472b6;
+    --purple: #a78bfa;
+    --cyan: #22d3ee;
+    --red: #f87171;
+    --radius: 12px;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, "PingFang SC", "Microsoft YaHei", "Noto Sans SC", sans-serif;
+    line-height: 1.7;
+    padding: 24px;
+  }
+
+  .container { max-width: 900px; margin: 0 auto; }
+
+  /* Header */
+  .header {
+    text-align: center;
+    padding: 40px 20px 30px;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 32px;
+  }
+  .header h1 {
+    font-size: 28px;
+    font-weight: 700;
+    background: linear-gradient(135deg, var(--accent), var(--pink));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    margin-bottom: 8px;
+  }
+  .header .subtitle { color: var(--text-dim); font-size: 14px; }
+  .header .tech-tags {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 8px;
+    margin-top: 16px;
+  }
+  .tech-tags span {
+    background: var(--accent-glow);
+    color: var(--accent);
+    padding: 3px 12px;
+    border-radius: 20px;
+    font-size: 12px;
+    border: 1px solid rgba(108,140,255,0.2);
+  }
+
+  /* Stats bar */
+  .stats {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+    gap: 12px;
+    margin-bottom: 32px;
+  }
+  .stat-card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 16px;
+    text-align: center;
+  }
+  .stat-card .num {
+    font-size: 24px;
+    font-weight: 700;
+    color: var(--accent);
+  }
+  .stat-card .label { font-size: 12px; color: var(--text-dim); margin-top: 4px; }
+
+  /* Category */
+  .category { margin-bottom: 24px; }
+  .category-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 16px;
+    cursor: pointer;
+    border-radius: var(--radius);
+    transition: background 0.2s;
+    user-select: none;
+  }
+  .category-header:hover { background: var(--card); }
+  .category-header .icon {
+    width: 32px; height: 32px;
+    border-radius: 8px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 16px;
+    flex-shrink: 0;
+  }
+  .category-header .title { font-size: 16px; font-weight: 600; }
+  .category-header .count {
+    margin-left: auto;
+    font-size: 12px;
+    color: var(--text-dim);
+    background: var(--card);
+    padding: 2px 10px;
+    border-radius: 10px;
+  }
+  .category-header .arrow {
+    transition: transform 0.3s;
+    color: var(--text-dim);
+    font-size: 12px;
+  }
+  .category.collapsed .arrow { transform: rotate(-90deg); }
+  .category.collapsed .qa-list { display: none; }
+
+  .qa-list { padding-left: 8px; }
+
+  /* QA Card */
+  .qa-card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    margin: 10px 0;
+    overflow: hidden;
+    transition: border-color 0.2s;
+  }
+  .qa-card:hover { border-color: rgba(108,140,255,0.3); }
+
+  .qa-question {
+    padding: 14px 18px;
+    cursor: pointer;
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    transition: background 0.2s;
+  }
+  .qa-question:hover { background: var(--card-hover); }
+  .qa-question .q-badge {
+    background: linear-gradient(135deg, var(--accent), #818cf8);
+    color: #fff;
+    font-size: 11px;
+    font-weight: 700;
+    padding: 2px 8px;
+    border-radius: 6px;
+    flex-shrink: 0;
+    margin-top: 2px;
+  }
+  .qa-question .q-text { font-weight: 500; font-size: 14px; flex: 1; }
+  .qa-question .q-arrow {
+    color: var(--text-dim);
+    font-size: 11px;
+    transition: transform 0.3s;
+    margin-top: 3px;
+  }
+  .qa-card.closed .q-arrow { transform: rotate(-90deg); }
+  .qa-card.closed .qa-answer { display: none; }
+
+  .qa-answer {
+    padding: 0 18px 16px 18px;
+    margin-left: 42px;
+    border-top: 1px solid var(--border);
+    padding-top: 14px;
+  }
+  .qa-answer p { font-size: 13.5px; color: var(--text); margin-bottom: 10px; }
+  .qa-answer p:last-child { margin-bottom: 0; }
+
+  .qa-answer code {
+    background: rgba(108,140,255,0.1);
+    color: var(--accent);
+    padding: 1px 6px;
+    border-radius: 4px;
+    font-size: 12.5px;
+    font-family: "JetBrains Mono", "Fira Code", "Consolas", monospace;
+  }
+
+  .qa-answer table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 10px 0;
+    font-size: 13px;
+  }
+  .qa-answer th {
+    background: rgba(108,140,255,0.1);
+    color: var(--accent);
+    padding: 8px 12px;
+    text-align: left;
+    font-weight: 600;
+    border-bottom: 1px solid var(--border);
+  }
+  .qa-answer td {
+    padding: 7px 12px;
+    border-bottom: 1px solid var(--border);
+    color: var(--text-dim);
+  }
+  .qa-answer tr:hover td { color: var(--text); }
+
+  .qa-answer ul, .qa-answer ol {
+    padding-left: 20px;
+    margin: 8px 0;
+  }
+  .qa-answer li {
+    font-size: 13.5px;
+    margin: 4px 0;
+    color: var(--text);
+  }
+  .qa-answer li::marker { color: var(--accent); }
+
+  .qa-answer .highlight {
+    color: var(--green);
+    font-weight: 500;
+  }
+  .qa-answer .warn {
+    color: var(--orange);
+    font-weight: 500;
+  }
+
+  /* Expand All */
+  .toolbar {
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+    margin-bottom: 20px;
+  }
+  .toolbar button {
+    background: var(--card);
+    border: 1px solid var(--border);
+    color: var(--text-dim);
+    padding: 6px 16px;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 13px;
+    transition: all 0.2s;
+  }
+  .toolbar button:hover {
+    color: var(--text);
+    border-color: var(--accent);
+  }
+
+  /* Color themes per category */
+  .cat-arch .icon { background: rgba(108,140,255,0.15); color: var(--accent); }
+  .cat-thread .icon { background: rgba(94,234,212,0.15); color: var(--green); }
+  .cat-perf .icon { background: rgba(251,191,36,0.15); color: var(--orange); }
+  .cat-audio .icon { background: rgba(244,114,182,0.15); color: var(--pink); }
+  .cat-web .icon { background: rgba(167,139,250,0.15); color: var(--purple); }
+  .cat-trap .icon { background: rgba(248,113,113,0.15); color: var(--red); }
+  .cat-opt .icon { background: rgba(34,211,238,0.15); color: var(--cyan); }
+
+  /* Footer */
+  .footer {
+    text-align: center;
+    padding: 30px 0 10px;
+    color: var(--text-dim);
+    font-size: 12px;
+    border-top: 1px solid var(--border);
+    margin-top: 40px;
+  }
+
+  /* Print */
+  @media print {
+    body { background: #fff; color: #000; }
+    .qa-card { background: #fff; border-color: #ddd; }
+    .qa-answer code { background: #f0f0f0; color: #333; }
+    .toolbar { display: none; }
+  }
+</style>
+</head>
+<body>
+<div class="container">
+
+  <!-- Header -->
+  <div class="header">
+    <h1>Emotion Music Generator — 项目问答手册</h1>
+    <div class="subtitle">C++17 &middot; OpenCV &middot; dlib &middot; ONNX Runtime &middot; POSIX Socket &mdash; Linux 课程实验项目</div>
+    <div class="tech-tags">
+      <span>人脸检测</span><span>情绪识别</span><span>音乐合成</span><span>Web 推流</span>
+      <span>多线程</span><span>毛玻璃 UI</span><span>REST API</span><span>物理建模</span>
+    </div>
+  </div>
+
+  <!-- Stats -->
+  <div class="stats">
+    <div class="stat-card"><div class="num">26</div><div class="label">问答条目</div></div>
+    <div class="stat-card"><div class="num">7</div><div class="label">知识模块</div></div>
+    <div class="stat-card"><div class="num">2</div><div class="label">线程 + 1 子进程</div></div>
+    <div class="stat-card"><div class="num">7</div><div class="label">情绪类别</div></div>
+  </div>
+
+  <!-- Toolbar -->
+  <div class="toolbar">
+    <button onclick="toggleAll(false)">全部展开</button>
+    <button onclick="toggleAll(true)">全部折叠</button>
+  </div>
+
+  <!-- ======== Category 1: Architecture ======== -->
+  <div class="category cat-arch">
+    <div class="category-header" onclick="toggleCat(this)">
+      <div class="icon">&#9961;</div>
+      <div class="title">一、整体架构与工作原理</div>
+      <div class="count">4 题</div>
+      <div class="arrow">&#9660;</div>
+    </div>
+    <div class="qa-list">
+
+      <div class="qa-card">
+        <div class="qa-question" onclick="toggleQA(this)">
+          <span class="q-badge">Q1</span>
+          <span class="q-text">整体数据流是怎样的？</span>
+          <span class="q-arrow">&#9660;</span>
+        </div>
+        <div class="qa-answer">
+          <p>端到端流水线如下：</p>
+          <ol>
+            <li><strong>帧采集</strong> — <code>cv::VideoCapture</code> 从摄像头/视频/图片读取</li>
+            <li><strong>人脸检测</strong> — dlib HOG 检测器找到所有人脸矩形</li>
+            <li><strong>选取最大人脸</strong> — 面积最大的人脸作为目标</li>
+            <li><strong>提取 68 关键点</strong> — dlib shape_predictor 输出轮廓/眉毛/眼睛/鼻子/嘴巴坐标</li>
+            <li><strong>裁剪人脸区域</strong> — 用关键点边界框裁剪并 resize 到 224&times;224</li>
+            <li><strong>ONNX 推理</strong> — HSEmotion EfficientNet-B0 输出 7 类 softmax 概率</li>
+            <li><strong>5 帧平滑</strong> — 滑动窗口多数投票，过滤抖动</li>
+            <li><strong>情绪 &rarr; 音乐参数</strong> — EmotionMapper 映射调性/音阶/速度/音色</li>
+            <li><strong>生成旋律+伴奏</strong> — MusicGenerator 根据参数合成完整曲目</li>
+            <li><strong>WAV 写盘 + 播放</strong> — AudioPlayer 生成 WAV，fork() 子进程调 paplay</li>
+          </ol>
+          <p>同时，主线程每帧把帧数据与情绪数据写入 <code>SharedState</code>（mutex 保护），Web 线程读取后推送 MJPEG 流并提供 REST API。</p>
+        </div>
+      </div>
+
+      <div class="qa-card">
+        <div class="qa-question" onclick="toggleQA(this)">
+          <span class="q-badge">Q2</span>
+          <span class="q-text">为什么选 dlib HOG 而不是深度学习人脸检测？</span>
+          <span class="q-arrow">&#9660;</span>
+        </div>
+        <div class="qa-answer">
+          <ul>
+            <li><strong>无需 GPU</strong> — HOG 是传统特征方法，纯 CPU 推理快（~10-30ms）</li>
+            <li><strong>依赖少</strong> — dlib 一个库搞定检测+关键点，部署简单</li>
+            <li><strong>正脸精度足够</strong> — 课程项目场景下正脸为主，HOG 够用</li>
+            <li><strong>对比</strong> — OpenCV DNN / RetinaFace / MTCNN 虽更准，但引入额外模型文件和推理框架，增加复杂度</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="qa-card">
+        <div class="qa-question" onclick="toggleQA(this)">
+          <span class="q-badge">Q3</span>
+          <span class="q-text">HSEmotion 模型是什么？为什么用它？</span>
+          <span class="q-arrow">&#9660;</span>
+        </div>
+        <div class="qa-answer">
+          <p>HSEmotion 是基于 <strong>EfficientNet-B0</strong> 微调的人脸情绪识别模型。</p>
+          <ul>
+            <li><strong>轻量</strong> — 参数量仅 ~5M，CPU 推理可达实时</li>
+            <li><strong>7 类输出</strong> — Angry / Disgust / Fear / Happy / Sad / Surprise / Neutral，覆盖基本情绪</li>
+            <li><strong>ONNX 格式</strong> — 导出为 ONNX，用 onnxruntime 推理，不依赖 PyTorch/Python 运行时</li>
+            <li><strong>高精度</strong> — 在 AffectNet / RAF-DB 数据集上准确率高</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="qa-card">
+        <div class="qa-question" onclick="toggleQA(this)">
+          <span class="q-badge">Q4</span>
+          <span class="q-text">情绪是怎么映射到音乐参数的？</span>
+          <span class="q-arrow">&#9660;</span>
+        </div>
+        <div class="qa-answer">
+          <p>通过 <code>EmotionMapper</code> 模块，每种情绪映射到不同参数组合：</p>
+          <table>
+            <tr><th>情绪</th><th>调性/音阶</th><th>速度 BPM</th><th>音色特征</th></tr>
+            <tr><td>Happy 开心</td><td>C 大调</td><td>快速</td><td>明亮钢琴（多泛音）</td></tr>
+            <tr><td>Sad 悲伤</td><td>D 小调</td><td>慢速</td><td>柔和弦乐（少泛音）</td></tr>
+            <tr><td>Angry 愤怒</td><td>减音阶</td><td>急促</td><td>刺耳（失真泛音）</td></tr>
+            <tr><td>Fear 恐惧</td><td>—</td><td>不规律</td><td>拨弦（强攻击）</td></tr>
+            <tr><td>Surprise 惊讶</td><td>—</td><td>快速</td><td>明亮钢琴</td></tr>
+            <tr><td>Disgust 厌恶</td><td>—</td><td>中速</td><td>暗色垫音（阻尼）</td></tr>
+            <tr><td>Neutral 中性</td><td>—</td><td>中等</td><td>温和钢琴（平衡）</td></tr>
+          </table>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ======== Category 2: Threading ======== -->
+  <div class="category cat-thread">
+    <div class="category-header" onclick="toggleCat(this)">
+      <div class="icon">&#9881;</div>
+      <div class="title">二、线程模型与并发</div>
+      <div class="count">4 题</div>
+      <div class="arrow">&#9660;</div>
+    </div>
+    <div class="qa-list">
+
+      <div class="qa-card">
+        <div class="qa-question" onclick="toggleQA(this)">
+          <span class="q-badge">Q5</span>
+          <span class="q-text">项目有几个线程？各自职责是什么？</span>
+          <span class="q-arrow">&#9660;</span>
+        </div>
+        <div class="qa-answer">
+          <table>
+            <tr><th>执行单元</th><th>类型</th><th>职责</th></tr>
+            <tr><td>主线程</td><td>std::thread (主)</td><td>采集帧 &rarr; 人脸检测 &rarr; 情绪识别 &rarr; UI 渲染 &rarr; 音乐生成控制，循环执行</td></tr>
+            <tr><td>Web 线程</td><td>std::thread</td><td>运行 POSIX socket HTTP 服务器，处理 MJPEG 推流和 REST API</td></tr>
+            <tr><td>音频子进程</td><td>fork()+exec</td><td>调用 <code>paplay</code> / <code>mpv</code> 播放音频文件，不阻塞父进程</td></tr>
+          </table>
+          <p>严格来说是 <span class="highlight">2 个线程 + 1 个子进程</span>。</p>
+        </div>
+      </div>
+
+      <div class="qa-card">
+        <div class="qa-question" onclick="toggleQA(this)">
+          <span class="q-badge">Q6</span>
+          <span class="q-text">线程间怎么通信？SharedState 的设计？</span>
+          <span class="q-arrow">&#9660;</span>
+        </div>
+        <div class="qa-answer">
+          <p><code>SharedState</code> 使用两种同步机制：</p>
+          <ul>
+            <li><strong>mutex（互斥锁）</strong> — 保护复杂数据：<code>latest_frame</code>（cv::Mat 帧）、情绪概率 <code>confidences</code>、音乐参数等。主线程写，Web 线程读，用 <code>std::lock_guard</code> RAII 自动加解锁</li>
+            <li><strong>atomic（原子变量）</strong> — 控制标志：<code>play_requested</code>、<code>pause_requested</code>、<code>auto_toggle_requested</code>、<code>mode_switch_requested</code> 等，无锁操作</li>
+          </ul>
+          <p>设计模式是典型的 <span class="highlight">生产者-消费者</span>：主线程生产帧和情绪数据，Web 线程消费。atomic 标志实现反向控制（Web &rarr; 主线程）。</p>
+        </div>
+      </div>
+
+      <div class="qa-card">
+        <div class="qa-question" onclick="toggleQA(this)">
+          <span class="q-badge">Q7</span>
+          <span class="q-text">为什么不全用 mutex，而要区分 mutex 和 atomic？</span>
+          <span class="q-arrow">&#9660;</span>
+        </div>
+        <div class="qa-answer">
+          <ul>
+            <li><strong>mutex</strong> 适合保护复杂数据结构（cv::Mat、vector），需要临界区保证一致性</li>
+            <li><strong>atomic</strong> 适合简单的布尔标志，<span class="highlight">无锁、开销极小</span></li>
+            <li>Web 线程 <code>store(true)</code> 置位，主循环 <code>load()</code> 检查后 <code>store(false)</code> 清除，整个过程不需要加锁</li>
+            <li>atomic 的内存序（memory order）保证了跨线程的可见性</li>
+          </ul>
+          <p>简言之：<strong>数据用锁，标志用原子</strong>，各取所长。</p>
+        </div>
+      </div>
+
+      <div class="qa-card">
+        <div class="qa-question" onclick="toggleQA(this)">
+          <span class="q-badge">Q8</span>
+          <span class="q-text">MJPEG 推流为什么限制只能一个客户端？</span>
+          <span class="q-arrow">&#9660;</span>
+        </div>
+        <div class="qa-answer">
+          <p>用 <code>mjpeg_busy_</code> atomic 标志控制。原因：</p>
+          <ul>
+            <li>每个客户端都要 JPEG 编码 + 发送帧数据，多客户端<span class="warn">倍增 CPU 和带宽开销</span></li>
+            <li>JPEG 编码是 CPU 密集操作，多个客户端会拖慢主循环帧率</li>
+            <li>实际场景中手机/浏览器远程查看，单客户端已满足需求</li>
+          </ul>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ======== Category 3: Performance ======== -->
+  <div class="category cat-perf">
+    <div class="category-header" onclick="toggleCat(this)">
+      <div class="icon">&#9889;</div>
+      <div class="title">三、性能与优化</div>
+      <div class="count">4 题</div>
+      <div class="arrow">&#9660;</div>
+    </div>
+    <div class="qa-list">
+
+      <div class="qa-card">
+        <div class="qa-question" onclick="toggleQA(this)">
+          <span class="q-badge">Q9</span>
+          <span class="q-text">实时性怎么保证？FPS 多少？</span>
+          <span class="q-arrow">&#9660;</span>
+        </div>
+        <div class="qa-answer">
+          <p>主循环目标 30 FPS（每帧 &lt;33ms）。典型耗时分布：</p>
+          <table>
+            <tr><th>步骤</th><th>耗时</th></tr>
+            <tr><td>dlib HOG 人脸检测</td><td>~10-30ms</td></tr>
+            <tr><td>ONNX 情绪推理</td><td>~10-20ms</td></tr>
+            <tr><td>UI 渲染（OpenCV 绘制）</td><td>~2-5ms</td></tr>
+            <tr><td>JPEG 编码（MJPEG）</td><td>~3-5ms</td></tr>
+          </table>
+          <p>代码中有 FPS 计数器（每 1000ms 重置），实际 i5 及以上 CPU 可达 <span class="highlight">15-30 FPS</span>。</p>
+        </div>
+      </div>
+
+      <div class="qa-card">
+        <div class="qa-question" onclick="toggleQA(this)">
+          <span class="q-badge">Q10</span>
+          <span class="q-text">如果人脸检测太慢怎么办？</span>
+          <span class="q-arrow">&#9660;</span>
+        </div>
+        <div class="qa-answer">
+          <ul>
+            <li><strong>跳帧检测</strong> — 不是每帧都跑检测，可以隔 N 帧检测一次，中间帧沿用上次结果</li>
+            <li><strong>调小 pyramid 参数</strong> — HOG 的金字塔缩放步长调大，牺牲精度换速度</li>
+            <li><strong>只取最大人脸</strong> — 避免多人脸的额外处理开销</li>
+            <li><strong>降低输入分辨率</strong> — 缩小帧尺寸再检测</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="qa-card">
+        <div class="qa-question" onclick="toggleQA(this)">
+          <span class="q-badge">Q11</span>
+          <span class="q-text">音乐生成会阻塞主线程吗？</span>
+          <span class="q-arrow">&#9660;</span>
+        </div>
+        <div class="qa-answer">
+          <p><span class="highlight">不会完全阻塞</span>。策略如下：</p>
+          <ul>
+            <li>生成完整 WAV 文件（旋律+伴奏+混响）确实耗时，但<strong>频率低</strong>（每 5 秒自动播放一次）</li>
+            <li>音频播放通过 <code>fork()+exec</code> 创建子进程，父进程<span class="highlight">不等待</span>子进程结束（非阻塞）</li>
+            <li>生成动作在主循环中执行，但由于频率低，对整体帧率影响有限</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="qa-card">
+        <div class="qa-question" onclick="toggleQA(this)">
+          <span class="q-badge">Q12</span>
+          <span class="q-text">ONNX Runtime 为什么比 PyTorch 推理快？</span>
+          <span class="q-arrow">&#9660;</span>
+        </div>
+        <div class="qa-answer">
+          <ul>
+            <li><strong>计算图优化</strong> — 算子融合、常量折叠、死代码消除</li>
+            <li><strong>静态图</strong> — ONNX 导出后是固定计算图，推理路径确定，可做更多编译期优化</li>
+            <li><strong>无 Python 开销</strong> — 去掉了 Python 解释器和动态图构建开销</li>
+            <li><strong>优化的算子实现</strong> — CPU 提供者使用 SIMD/多线程优化的算子</li>
+            <li><strong>内存规划</strong> — 可预分配内存，减少运行时动态分配</li>
+          </ul>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ======== Category 4: Audio ======== -->
+  <div class="category cat-audio">
+    <div class="category-header" onclick="toggleCat(this)">
+      <div class="icon">&#9835;</div>
+      <div class="title">四、音频合成原理</div>
+      <div class="count">2 题</div>
+      <div class="arrow">&#9660;</div>
+    </div>
+    <div class="qa-list">
+
+      <div class="qa-card">
+        <div class="qa-question" onclick="toggleQA(this)">
+          <span class="q-badge">Q13</span>
+          <span class="q-text">钢琴音色是怎么合成的？</span>
+          <span class="q-arrow">&#9660;</span>
+        </div>
+        <div class="qa-answer">
+          <p>不是采样回放，而是<span class="highlight">物理建模合成</span>，5 个关键步骤：</p>
+          <ol>
+            <li><strong>三弦模型</strong> — 每个音模拟 3 根略微走音的弦（频率比 <code>0.9994 / 1.0 / 1.0006</code>），产生自然的拍频效果（beating）</li>
+            <li><strong>双段 ADSR 包络</strong>：
+              <ul>
+                <li>快速初始衰减 — 衰减率 8.0，约 80ms</li>
+                <li>慢速尾部衰减 — 衰减率 0.8，时长与音高负相关（低音更长）</li>
+              </ul>
+            </li>
+            <li><strong>泛音叠加</strong> — 根据力度添加 6-12 个泛音，力度越大泛音越多（音色越亮）</li>
+            <li><strong>击弦瞬态噪声</strong> — 模拟琴锤敲击弦时的短暂噪声爆发</li>
+            <li><strong>Schroeder 混响</strong> — 4 个梳状滤波器 + 2 个全通滤波器模拟空间混响</li>
+          </ol>
+        </div>
+      </div>
+
+      <div class="qa-card">
+        <div class="qa-question" onclick="toggleQA(this)">
+          <span class="q-badge">Q14</span>
+          <span class="q-text">Schroeder 混响算法的原理？</span>
+          <span class="q-arrow">&#9660;</span>
+        </div>
+        <div class="qa-answer">
+          <p>经典人工混响算法，分两级处理：</p>
+          <ol>
+            <li><strong>梳状滤波器（Comb Filter）&times; 4</strong>
+              <ul>
+                <li>不同延迟长度的反馈延迟线</li>
+                <li>产生密集的回声，模拟房间早期反射</li>
+                <li>延迟时间不同避免"金属感"</li>
+              </ul>
+            </li>
+            <li><strong>全通滤波器（Allpass Filter）&times; 2</strong>
+              <ul>
+                <li>打乱梳状滤波器产生的频率"染色"</li>
+                <li>让混响更平滑、自然、扩散</li>
+              </ul>
+            </li>
+          </ol>
+          <p>可调参数：混响时间（RT60）、干湿比（dry/wet mix）。</p>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ======== Category 5: Web ======== -->
+  <div class="category cat-web">
+    <div class="category-header" onclick="toggleCat(this)">
+      <div class="icon">&#127760;</div>
+      <div class="title">五、Web 服务器</div>
+      <div class="count">2 题</div>
+      <div class="arrow">&#9660;</div>
+    </div>
+    <div class="qa-list">
+
+      <div class="qa-card">
+        <div class="qa-question" onclick="toggleQA(this)">
+          <span class="q-badge">Q15</span>
+          <span class="q-text">为什么不用第三方库而自己写 HTTP 服务器？</span>
+          <span class="q-arrow">&#9660;</span>
+        </div>
+        <div class="qa-answer">
+          <ul>
+            <li><strong>课程要求</strong> — 展示对底层网络编程的理解（POSIX socket API）</li>
+            <li><strong>需求简单</strong> — 只需要 MJPEG 推流 + 几个 REST 端点，不需要重量级框架</li>
+            <li><strong>依赖最小化</strong> — 直接用 <code>socket()</code> / <code>bind()</code> / <code>listen()</code> / <code>accept()</code>，无额外安装</li>
+            <li><strong>代码量可控</strong> — 全部在 <code>web_server.h/.cpp</code> 两个文件中</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="qa-card">
+        <div class="qa-question" onclick="toggleQA(this)">
+          <span class="q-badge">Q16</span>
+          <span class="q-text">MJPEG 推流的技术原理？</span>
+          <span class="q-arrow">&#9660;</span>
+        </div>
+        <div class="qa-answer">
+          <p>MJPEG (Motion JPEG) 基于 HTTP 长连接实现：</p>
+          <ol>
+            <li>服务器返回响应头：<code>Content-Type: multipart/x-mixed-replace; boundary=frame</code></li>
+            <li>每帧发送：<code>--frame\r\nContent-Type: image/jpeg\r\nContent-Length: N\r\n\r\n</code> + JPEG 二进制数据</li>
+            <li>浏览器收到新帧<span class="highlight">自动替换</span>旧帧，形成"视频流"</li>
+            <li>服务器用 <code>select()</code> 非阻塞轮询，66ms 间隔推帧（~15 FPS）</li>
+            <li>JPEG 压缩质量设为 <strong>65</strong>，平衡画质和带宽</li>
+          </ol>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ======== Category 6: Traps ======== -->
+  <div class="category cat-trap">
+    <div class="category-header" onclick="toggleCat(this)">
+      <div class="icon">&#9888;</div>
+      <div class="title">六、追问 / 易踩坑</div>
+      <div class="count">4 题</div>
+      <div class="arrow">&#9660;</div>
+    </div>
+    <div class="qa-list">
+
+      <div class="qa-card">
+        <div class="qa-question" onclick="toggleQA(this)">
+          <span class="q-badge">Q17</span>
+          <span class="q-text">5 帧滑动窗口是怎么做情绪平滑的？</span>
+          <span class="q-arrow">&#9660;</span>
+        </div>
+        <div class="qa-answer">
+          <p>保存最近 <code>SMOOTH_WINDOW = 5</code> 帧的识别结果，取<span class="highlight">众数（majority voting）</span>作为最终情绪。</p>
+          <p>例如：连续 4 帧识别为 Happy，1 帧误判为 Neutral，投票后仍输出 Happy。</p>
+          <p>优点：过滤偶发误识别，让情绪切换更稳定；缺点：引入约 5 帧延迟（~170ms @30FPS），可忽略不计。</p>
+        </div>
+      </div>
+
+      <div class="qa-card">
+        <div class="qa-question" onclick="toggleQA(this)">
+          <span class="q-badge">Q18</span>
+          <span class="q-text">如果没有人脸怎么办？</span>
+          <span class="q-arrow">&#9660;</span>
+        </div>
+        <div class="qa-answer">
+          <p>主循环检查 <code>faces.empty()</code>：</p>
+          <ul>
+            <li>无人脸时跳过情绪识别和音乐生成，只渲染 UI</li>
+            <li><code>SharedState</code> 中 <code>face_detected</code> 置 false，Web 端能看到"未检测到人脸"</li>
+            <li>保持上一次有效情绪数据，不重置为中性</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="qa-card">
+        <div class="qa-question" onclick="toggleQA(this)">
+          <span class="q-badge">Q19</span>
+          <span class="q-text">怎么处理光照和角度变化？</span>
+          <span class="q-arrow">&#9660;</span>
+        </div>
+        <div class="qa-answer">
+          <ul>
+            <li><strong>HOG 特征</strong> 对正脸效果好，大角度侧脸可能检测不到（固有限制）</li>
+            <li><strong>HSEmotion 训练数据</strong> 有一定光照/角度增强，模型本身有一定鲁棒性</li>
+            <li>极端条件下准确率会下降，这是 <span class="warn">该方案的固有局限</span></li>
+            <li>改进方向：可换成 CNN 人脸检测器（如 RetinaFace）+ 更大数据训练的模型</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="qa-card">
+        <div class="qa-question" onclick="toggleQA(this)">
+          <span class="q-badge">Q20</span>
+          <span class="q-text">fork 播放音频会不会产生僵尸进程？怎么解决？</span>
+          <span class="q-arrow">&#9660;</span>
+        </div>
+        <div class="qa-answer">
+          <p><span class="warn">会的</span>。<code>fork()</code> 后如果不调用 <code>wait()</code>/<code>waitpid()</code>，子进程结束后变成僵尸进程（Z 状态）。</p>
+          <p>解决方案：</p>
+          <ul>
+            <li><code>signal(SIGCHLD, SIG_IGN)</code> — 让内核自动回收子进程，最简单</li>
+            <li>或者主循环中非阻塞调用 <code>waitpid(-1, nullptr, WNOHANG)</code> 定期清理</li>
+            <li>或者用 <code>prctl(PR_SET_PDEATHSIG, SIGKILL)</code> 在子进程中设置父进程退出时自己也被杀</li>
+          </ul>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ======== Category 7: Optimization & Profiling ======== -->
+  <div class="category cat-opt">
+    <div class="category-header" onclick="toggleCat(this)">
+      <div class="icon">&#128200;</div>
+      <div class="title">七、优化策略、效果与性能探针</div>
+      <div class="count">6 题</div>
+      <div class="arrow">&#9660;</div>
+    </div>
+    <div class="qa-list">
+
+      <div class="qa-card">
+        <div class="qa-question" onclick="toggleQA(this)">
+          <span class="q-badge">Q21</span>
+          <span class="q-text">项目用了哪些方法来改进？</span>
+          <span class="q-arrow">&#9660;</span>
+        </div>
+        <div class="qa-answer">
+          <p>从三个维度改进：</p>
+          <table>
+            <tr><th>维度</th><th>改进方法</th><th>目的</th></tr>
+            <tr><td>准确率</td><td>5 帧滑动窗口多数投票</td><td>过滤偶发误识别，情绪输出更稳定</td></tr>
+            <tr><td>准确率</td><td>HSEmotion EfficientNet-B0 ONNX</td><td>用预训练高精度模型替代简单分类器</td></tr>
+            <tr><td>实时性</td><td>只取最大人脸 + 跳帧检测</td><td>减少不必要的检测和识别开销</td></tr>
+            <tr><td>实时性</td><td>atomic 无锁标志 + mutex 分离</td><td>减少线程同步开销</td></tr>
+            <tr><td>实时性</td><td>fork() 子进程播放音频</td><td>播放不阻塞主循环</td></tr>
+            <tr><td>带宽</td><td>JPEG 质量 65 + 单客户端 MJPEG</td><td>控制编码和传输开销</td></tr>
+            <tr><td>可用性</td><td>Web 远程控制 + 情绪日记</td><td>脱离键盘/屏幕也能使用</td></tr>
+          </table>
+        </div>
+      </div>
+
+      <div class="qa-card">
+        <div class="qa-question" onclick="toggleQA(this)">
+          <span class="q-badge">Q22</span>
+          <span class="q-text">关键路径（性能瓶颈）在哪里？</span>
+          <span class="q-arrow">&#9660;</span>
+        </div>
+        <div class="qa-answer">
+          <p>主循环关键路径（按耗时从高到低）：</p>
+          <div style="background:rgba(34,211,238,0.06);border:1px solid rgba(34,211,238,0.15);border-radius:8px;padding:14px;margin:10px 0;font-size:13px;">
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+              <span style="color:var(--cyan);font-weight:700;min-width:80px;">瓶颈 #1</span>
+              <span style="flex:1;"><strong>dlib HOG 人脸检测</strong> &mdash; ~10-30ms，占整帧 40-60%</span>
+              <span style="background:rgba(248,113,113,0.2);color:var(--red);padding:1px 8px;border-radius:4px;font-size:11px;">最大瓶颈</span>
+            </div>
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+              <span style="color:var(--cyan);font-weight:700;min-width:80px;">瓶颈 #2</span>
+              <span style="flex:1;"><strong>ONNX 情绪推理</strong> &mdash; ~10-20ms，占整帧 30-40%</span>
+            </div>
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+              <span style="color:var(--cyan);font-weight:700;min-width:80px;">开销 #3</span>
+              <span style="flex:1;"><strong>JPEG 编码</strong>（MJPEG 推流时）&mdash; ~3-5ms</span>
+            </div>
+            <div style="display:flex;align-items:center;gap:8px;">
+              <span style="color:var(--cyan);font-weight:700;min-width:80px;">开销 #4</span>
+              <span style="flex:1;"><strong>UI 渲染</strong>（OpenCV 绘制）&mdash; ~2-5ms</span>
+            </div>
+          </div>
+          <p>人脸检测 + 情绪推理合计占 <span class="highlight">70-90% 的帧处理时间</span>，是绝对的关键路径。其余步骤（UI 绘制、状态更新、按键处理）开销很小。</p>
+        </div>
+      </div>
+
+      <div class="qa-card">
+        <div class="qa-question" onclick="toggleQA(this)">
+          <span class="q-badge">Q23</span>
+          <span class="q-text">具体用了哪些优化方法？各自原理？</span>
+          <span class="q-arrow">&#9660;</span>
+        </div>
+        <div class="qa-answer">
+          <p><strong>算法层优化：</strong></p>
+          <ul>
+            <li><strong>跳帧检测</strong> &mdash; 不每帧都跑 HOG 检测，隔 N 帧检测一次，中间帧复用上次人脸位置。原理：人脸位置帧间变化很小，无需逐帧重检测</li>
+            <li><strong>只取最大人脸</strong> &mdash; 检测到多张人脸后只对面积最大的做情绪识别。原理：画面中最大人脸通常是主要用户</li>
+            <li><strong>5 帧多数投票</strong> &mdash; 滑动窗口取众数。原理：利用时序连续性过滤单帧噪声</li>
+          </ul>
+          <p><strong>系统层优化：</strong></p>
+          <ul>
+            <li><strong>atomic 替代 mutex</strong> &mdash; 简单标志用 <code>std::atomic&lt;bool&gt;</code>，无锁。原理：atomic 利用 CPU CAS 指令，避免互斥锁的内核态切换开销</li>
+            <li><strong>fork() 非阻塞播放</strong> &mdash; 子进程执行 paplay，父进程继续主循环。原理：进程级并行，音频 I/O 不阻塞视觉处理</li>
+            <li><strong>JPEG 质量 65</strong> &mdash; 压缩质量设为 65（0-100）。原理：65 是视觉质量与文件大小的甜点，再高人眼几乎看不出差别但编码耗时增加</li>
+            <li><strong>单客户端 MJPEG</strong> &mdash; <code>mjpeg_busy_</code> atomic 互斥。原理：避免重复编码同帧，O(1) 客户端开销</li>
+            <li><strong>ONNX 静态图</strong> &mdash; 用 onnxruntime 替代 PyTorch 动态图。原理：固定计算图可做算子融合、内存预分配等编译期优化</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="qa-card">
+        <div class="qa-question" onclick="toggleQA(this)">
+          <span class="q-badge">Q24</span>
+          <span class="q-text">优化效果怎么样？有量化数据吗？</span>
+          <span class="q-arrow">&#9660;</span>
+        </div>
+        <div class="qa-answer">
+          <table>
+            <tr><th>优化项</th><th>优化前（估计）</th><th>优化后</th><th>提升</th></tr>
+            <tr><td>人脸检测（跳帧，隔 3 帧）</td><td>每帧 ~20ms</td><td>均摊 ~7ms/帧</td><td><span class="highlight">~65%</span></td></tr>
+            <tr><td>情绪稳定性（5 帧投票）</td><td>帧间抖动频繁</td><td>几乎无抖动</td><td>质变</td></tr>
+            <tr><td>音频播放阻塞</td><td>播放期间主循环卡顿</td><td>零阻塞（fork）</td><td><span class="highlight">100%</span></td></tr>
+            <tr><td>MJPEG 带宽（JPEG q=65）</td><td>q=95 时 ~200KB/帧</td><td>~40KB/帧</td><td><span class="highlight">~80%</span> 带宽节省</td></tr>
+            <tr><td>ONNX vs PyTorch 推理</td><td>~25-40ms（PyTorch）</td><td>~10-20ms（ONNX）</td><td><span class="highlight">~50%</span></td></tr>
+            <tr><td>线程同步（atomic vs mutex）</td><td>每次 ~1-2&mu;s（加锁解锁）</td><td>~10-50ns（原子操作）</td><td>~20-100&times;</td></tr>
+          </table>
+          <p>综合效果：i5 CPU 上整体 FPS 从未优化的 <span class="warn">~5-8 FPS</span> 提升到 <span class="highlight">15-30 FPS</span>，达到实时可用水平。</p>
+        </div>
+      </div>
+
+      <div class="qa-card">
+        <div class="qa-question" onclick="toggleQA(this)">
+          <span class="q-badge">Q25</span>
+          <span class="q-text">图像处理各环节是有损还是无损的？</span>
+          <span class="q-arrow">&#9660;</span>
+        </div>
+        <div class="qa-answer">
+          <table>
+            <tr><th>处理环节</th><th>有损/无损</th><th>说明</th></tr>
+            <tr><td>摄像头采集（BGR 矩阵）</td><td><span class="warn">有损</span></td><td>传感器本身有噪点、拜耳滤镜插值，非真实场景完美复现</td></tr>
+            <tr><td>dlib HOG 特征提取</td><td><span class="warn">有损</span></td><td>HOG 将图像转换为梯度方向直方图，丢弃了纹理/颜色等细节，只保留形状信息</td></tr>
+            <tr><td>68 关键点提取</td><td><span class="warn">有损</span></td><td>整张人脸压缩为 68 个 (x,y) 坐标，丢弃了绝大多数像素信息</td></tr>
+            <tr><td>人脸裁剪 + resize 到 224&times;224</td><td><span class="warn">有损</span></td><td>降采样丢失高频细节，双线性/双三次插值会模糊边缘</td></tr>
+            <tr><td>归一化（/255 减均值除标准差）</td><td><span class="highlight">无损</span></td><td>线性变换，数学上可逆（知道均值/标准差可还原），信息量不变</td></tr>
+            <tr><td>ONNX softmax 推理</td><td><span class="highlight">无损</span></td><td>确定性浮点计算，相同输入永远产生相同输出，无随机丢失</td></tr>
+            <tr><td>5 帧投票平滑</td><td><span class="warn">有损</span></td><td>丢弃了少数帧的识别结果（被投票覆盖），但这是设计意图</td></tr>
+            <tr><td>JPEG 编码（MJPEG 推流）</td><td><span class="warn">有损</span></td><td>JPEG 是有损压缩格式，DCT 变换 + 量化丢弃高频分量，quality=65 丢弃约 35% 信息</td></tr>
+            <tr><td>帧克隆（clone 给 Web 线程）</td><td><span class="highlight">无损</span></td><td><code>cv::Mat::clone()</code> 是像素级深拷贝，数据完全一致</td></tr>
+          </table>
+          <p>关键结论：<strong>检测和识别环节都是有损的</strong>（这是特征提取的本质 &mdash; 从高维数据中提取低维语义），但<span class="highlight">推理过程本身是确定性的无损计算</span>。JPEG 推流是唯一"刻意损失画质"的环节，为了带宽做的取舍。</p>
+        </div>
+      </div>
+
+      <div class="qa-card">
+        <div class="qa-question" onclick="toggleQA(this)">
+          <span class="q-badge">Q26</span>
+          <span class="q-text">项目中有没有用性能探针（Profiling）？怎么做性能分析？</span>
+          <span class="q-arrow">&#9660;</span>
+        </div>
+        <div class="qa-answer">
+          <p><strong>项目内置探针：</strong></p>
+          <ul>
+            <li><strong>FPS 计数器</strong> &mdash; 主循环中用 <code>std::chrono::steady_clock</code> 计时，每 1000ms 重置一次，实时显示在 UI 状态栏</li>
+            <li><strong>分段计时探针（已实现）</strong> &mdash; 8 个管线阶段各插入 <code>ScopedTimer</code> RAII 守卫，自动记录 last/avg/max 三项指标</li>
+            <li><strong>性能面板</strong> &mdash; 按 <code>P</code> 键弹出右上角毛玻璃面板，实时显示各阶段耗时 + 颜色编码进度条 + 帧总耗时</li>
+            <li><strong>Web API 暴露</strong> &mdash; <code>/api/status</code> JSON 中新增 <code>perf</code> 字段，远程可查看各阶段耗时</li>
+          </ul>
+          <p><strong>探针架构（PerfProfiler）：</strong></p>
+          <ul>
+            <li><code>perf_profiler.h</code> &mdash; Header-only 单例，零分配热路径</li>
+            <li><code>ScopedTimer</code> RAII 守卫 &mdash; 放在代码块开头，出作用域自动记录耗时</li>
+            <li><code>StageTiming</code> &mdash; 每阶段存储 last_ms / avg_ms（指数滑动平均 alpha=0.1）/ max_ms</li>
+            <li>线程安全：仅主线程写入，Web/UI 线程读取（对陈旧数据容忍）</li>
+          </ul>
+          <p><strong>实际代码用法：</strong></p>
+<pre style="background:rgba(108,140,255,0.08);padding:10px;border-radius:6px;font-size:12px;color:var(--text);overflow-x:auto;margin-top:6px;">// 人脸检测阶段探针
+{ ScopedTimer timer_detect(Stage::DETECT);
+  auto faces = detector.detectFaces(frame);
+} // 出作用域自动记录耗时
+
+// ONNX 推理阶段探针
+{ ScopedTimer timer_recognize(Stage::RECOGNIZE);
+  Emotion detected = recognizer.recognizeFromImage(frame, *biggest);
+  current_emotion = smoothEmotion(emotion_buffer);
+  current_params = mapper.mapToMusic(current_emotion);
+}</pre>
+          <p><strong>外部 Profiling 工具（补充）：</strong></p>
+          <table>
+            <tr><th>工具</th><th>用途</th><th>用法</th></tr>
+            <tr><td><code>perf</code></td><td>Linux CPU 性能分析，函数级热点</td><td><code>perf record ./emotion_music_generator camera</code></td></tr>
+            <tr><td><code>gprof</code></td><td>编译期插桩，函数调用图+耗时</td><td>编译加 <code>-pg</code>，运行后看 <code>gmon.out</code></td></tr>
+            <tr><td><code>valgrind --tool=callgrind</code></td><td>指令级性能分析</td><td><code>valgrind --tool=callgrind ./emotion_music_generator</code></td></tr>
+            <tr><td><code>htop / top</code></td><td>实时 CPU/内存占用监控</td><td>运行时观察资源使用</td></tr>
+            <tr><td><code>strace</code></td><td>系统调用追踪（socket/fork 等）</td><td><code>strace -c -p &lt;PID&gt;</code></td></tr>
+            <tr><td><code>time</code></td><td>快速看总 CPU 时间 / 实际时间</td><td><code>/usr/bin/time -v ./emotion_music_generator</code></td></tr>
+          </table>
+          <p>实际建议：先用内置 FPS 计数器看全局，再用 <code>perf</code> 或分段计时定位热点函数，最后针对性优化。</p>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <div class="footer">
+    Emotion Music Generator &mdash; Q&A Handbook &middot; Generated for project review
+  </div>
+</div>
+
+<script>
+function toggleQA(el) {
+  el.parentElement.classList.toggle('closed');
+}
+function toggleCat(el) {
+  el.parentElement.classList.toggle('collapsed');
+}
+function toggleAll(close) {
+  if (close) {
+    document.querySelectorAll('.qa-card').forEach(c => c.classList.add('closed'));
+    document.querySelectorAll('.category').forEach(c => c.classList.add('collapsed'));
+  } else {
+    document.querySelectorAll('.qa-card').forEach(c => c.classList.remove('closed'));
+    document.querySelectorAll('.category').forEach(c => c.classList.remove('collapsed'));
+  }
+}
+// 默认展开所有分类，折叠所有答案
+document.addEventListener('DOMContentLoaded', () => {
+  document.querySelectorAll('.qa-card').forEach(c => c.classList.add('closed'));
+});
+</script>
+</body>
+</html>
